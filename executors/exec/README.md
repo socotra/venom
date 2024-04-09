@@ -34,6 +34,30 @@ testcases:
             echo "Bar"
 ```
 
+Input:
+
+```yaml
+name: Title of TestSuite
+testcases:
+- name: with stdin
+  steps:
+  - type: exec
+    stdin: Foo
+    script: cat
+```
+
+Explicit command (no shell):
+
+```yaml
+name: Title of TestSuite
+testcases:
+- name: explicit command
+  steps:
+  - type: exec
+    stdin: "{\"foo\":\"bar\"}"
+    command: ["jq", ".foo"]
+```
+
 ## Output
 
 ```yaml
