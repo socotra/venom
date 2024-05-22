@@ -354,6 +354,7 @@ func JSONUnmarshal(btes []byte, i interface{}) error {
 }
 
 func (v *Venom) GenerateOpenApiReport() error {
+	v.Println("Reading files...")
 	files, err := os.ReadDir(v.OutputDir)
 	if err != nil {
 		fmt.Println("Error:", err)
@@ -411,8 +412,18 @@ func (v *Venom) GenerateOpenApiReport() error {
 		}
 	}
 
+	var filename = filepath.Join(v.OutputDir, computeOutputFilename("open_api_report.txt"))
+	var data []byte
+
 	for endpoint, count := range openAPIEndpoints {
-		fmt.Printf("%s: %d\n", endpoint, count)
+		line := fmt.Sprintf("%s: %d", endpoint, count)
+		data = append(data, []byte(line)...)
+		v.PrintFunc("%s: %d\n", endpoint, count)
+	}
+
+	v.PrintFunc("Writing open api report file %s\n", filename)
+	if err := os.WriteFile(filename, data, 0600); err != nil {
+		return errors.Wrapf(err, "Error while creating file %s", filename)
 	}
 	return nil
 }
