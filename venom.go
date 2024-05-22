@@ -74,6 +74,7 @@ type Venom struct {
 	StopOnFailure bool
 	HtmlReport    bool
 	Verbose       int
+	OpenApiReport bool
 }
 
 var trace = color.New(color.Attribute(90)).SprintFunc()
@@ -350,4 +351,68 @@ func JSONUnmarshal(btes []byte, i interface{}) error {
 	d := json.NewDecoder(bytes.NewReader(btes))
 	d.UseNumber()
 	return d.Decode(i)
+}
+
+func (v *Venom) GenerateOpenApiReport() error {
+	files, err := os.ReadDir(v.OutputDir)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return nil
+	}
+
+	openAPIEndpoints := make(map[string]int)
+
+	for _, file := range files {
+		// Load OpenAPI specification if it's a JSON file
+		if strings.HasSuffix(file.Name(), ".json") && !strings.Contains(file.Name(), "dump") {
+			openAPI, err := LoadOpenAPISpec(filepath.Join(v.OutputDir, file.Name()))
+			if err != nil {
+				fmt.Println("Error:", err)
+				continue
+			}
+
+			// Get all endpoints with HTTP methods
+			endpoints := GetAllEndpoints(openAPI)
+
+			// Store endpoints in the map
+			for p, methods := range endpoints {
+				for _, method := range methods {
+					s := []string{method, p}
+					endpointToStore := strings.Join(s, " ")
+					openAPIEndpoints[endpointToStore] = 0
+				}
+			}
+		}
+	}
+
+	if len(openAPIEndpoints) == 0 {
+		return errors.Errorf("%s", "OpenAPI Spec file not found")
+	}
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), ".xml") {
+			testsuites, err := LoadJUnitXML(filepath.Join(v.OutputDir, file.Name()))
+			if err != nil {
+				fmt.Println("Error:", err)
+				continue
+			}
+
+			// Print HTTP methods extracted from testsuite names
+			fmt.Println("testsuite HTTP Methods:")
+			for _, testsuite := range testsuites.TestSuites {
+				httpMethod, endpoint := ExtractHttpEndpoint(testsuite.Name)
+				if httpMethod != "" {
+					s := []string{httpMethod, endpoint}
+					endpointToCheck := strings.Join(s, " ")
+					if count, ok := openAPIEndpoints[endpointToCheck]; ok {
+						openAPIEndpoints[endpointToCheck] = count + 1
+					}
+				}
+			}
+		}
+	}
+
+	for endpoint, count := range openAPIEndpoints {
+		fmt.Printf("%s: %d\n", endpoint, count)
+	}
+	return nil
 }
