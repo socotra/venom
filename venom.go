@@ -416,9 +416,8 @@ func (v *Venom) GenerateOpenApiReport() error {
 	var data []byte
 
 	for endpoint, count := range openAPIEndpoints {
-		line := fmt.Sprintf("%s: %d", endpoint, count)
+		line := fmt.Sprintf("%s: %d\n", endpoint, count)
 		data = append(data, []byte(line)...)
-		v.PrintFunc("%s: %d\n", endpoint, count)
 	}
 
 	v.PrintFunc("Writing open api report file %s\n", filename)
