@@ -354,7 +354,6 @@ func JSONUnmarshal(btes []byte, i interface{}) error {
 }
 
 func (v *Venom) GenerateOpenApiReport() error {
-	v.Println("Reading files...")
 	files, err := os.ReadDir(v.OutputDir)
 	if err != nil {
 		fmt.Println("Error:", err)
@@ -397,8 +396,6 @@ func (v *Venom) GenerateOpenApiReport() error {
 				continue
 			}
 
-			// Print HTTP methods extracted from testsuite names
-			fmt.Println("testsuite HTTP Methods:")
 			for _, testsuite := range testsuites.TestSuites {
 				httpMethod, endpoint := ExtractHttpEndpoint(testsuite.Name)
 				if httpMethod != "" {
