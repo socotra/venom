@@ -436,7 +436,6 @@ var Cmd = &cobra.Command{
 		if v.OpenApiReport {
 			if err := v.GenerateOpenApiReport(); err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
-				venom.OSExit(2)
 			}
 		}
 
