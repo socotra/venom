@@ -354,9 +354,24 @@ func JSONUnmarshal(btes []byte, i interface{}) error {
 }
 
 func (v *Venom) GenerateOpenApiReport() error {
-	files, err := os.ReadDir(v.OutputDir)
+	dir := v.OutputDir
+	var files []FileEntry
+
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			ext := filepath.Ext(d.Name())
+			if ext == ".json" || ext == ".xml" {
+				files = append(files, FileEntry{Path: path, Entry: d})
+			}
+		}
+		return nil
+	})
+
 	if err != nil {
-		fmt.Println("Error:", err)
+		fmt.Printf("Error walking the path %q: %v\n", dir, err)
 		return nil
 	}
 
@@ -364,8 +379,8 @@ func (v *Venom) GenerateOpenApiReport() error {
 
 	for _, file := range files {
 		// Load OpenAPI specification if it's a JSON file
-		if strings.HasSuffix(file.Name(), ".json") && !strings.Contains(file.Name(), "dump") {
-			openAPI, err := LoadOpenAPISpec(filepath.Join(v.OutputDir, file.Name()))
+		if strings.HasSuffix(file.Entry.Name(), ".json") && !strings.Contains(file.Entry.Name(), "dump") {
+			openAPI, err := LoadOpenAPISpec(filepath.Join(v.OutputDir, file.Entry.Name()))
 			if err != nil {
 				fmt.Println("Error:", err)
 				continue
@@ -389,8 +404,8 @@ func (v *Venom) GenerateOpenApiReport() error {
 		return errors.Errorf("%s", "OpenAPI Spec file not found")
 	}
 	for _, file := range files {
-		if strings.HasSuffix(file.Name(), ".xml") {
-			testsuites, err := LoadJUnitXML(filepath.Join(v.OutputDir, file.Name()))
+		if strings.HasSuffix(file.Entry.Name(), ".xml") {
+			testsuites, err := LoadJUnitXML(filepath.Join(v.OutputDir, file.Entry.Name()))
 			if err != nil {
 				fmt.Println("Error:", err)
 				continue

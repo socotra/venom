@@ -32,6 +32,11 @@ type TestSuites struct {
 	TestSuites []Testsuite `xml:"testsuite"`
 }
 
+type FileEntry struct {
+	Path  string
+	Entry os.DirEntry
+}
+
 func LoadOpenAPISpec(filename string) (*OpenAPI, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
