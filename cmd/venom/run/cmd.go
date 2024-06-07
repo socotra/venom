@@ -56,7 +56,7 @@ func init() {
 	variablesFlag = Cmd.Flags().StringArray("var", nil, "--var cds='cds -f config.json' --var cds2='cds -f config.json'")
 	outputDirFlag = Cmd.PersistentFlags().String("output-dir", "", "Output Directory: create tests results file inside this directory")
 	libDirFlag = Cmd.PersistentFlags().String("lib-dir", "", "Lib Directory: can contain user executors. example:/etc/venom/lib:$HOME/venom.d/lib")
-	openApiReportFlag = Cmd.Flags().Bool("openapi-report", false, "Generate OpenAPI Report")
+	openApiReportFlag = Cmd.Flags().Bool("open-api-report", false, "Generate OpenAPI Report")
 }
 
 func initArgs(cmd *cobra.Command) {
