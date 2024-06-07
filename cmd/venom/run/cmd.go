@@ -118,7 +118,7 @@ func initFromCommandArguments(f *pflag.Flag) {
 				variables = mergeVariables(varFlag, variables)
 			}
 		}
-	case "openapi-report":
+	case "open-api-report":
 		if openApiReportFlag != nil {
 			openApiReport = *openApiReportFlag
 		}
