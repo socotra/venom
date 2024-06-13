@@ -5,6 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/confluentinc/bincover"
+	"github.com/fatih/color"
+	"github.com/ovh/cds/sdk/interpolate"
+	"github.com/pkg/errors"
+	"github.com/rockbears/yaml"
+	"github.com/spf13/cast"
 	"io"
 	"os"
 	"path"
@@ -12,13 +18,6 @@ import (
 	"plugin"
 	"sort"
 	"strings"
-
-	"github.com/confluentinc/bincover"
-	"github.com/fatih/color"
-	"github.com/ovh/cds/sdk/interpolate"
-	"github.com/pkg/errors"
-	"github.com/rockbears/yaml"
-	"github.com/spf13/cast"
 )
 
 var (
@@ -354,25 +353,38 @@ func JSONUnmarshal(btes []byte, i interface{}) error {
 }
 
 func (v *Venom) GenerateOpenApiReport() error {
-	dir := v.OutputDir
+	pattern := v.variables["openapi-report-pattern"]
+	strPattern := fmt.Sprintf("%v", pattern)
 	var files []FileEntry
-
-	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() {
-			ext := filepath.Ext(d.Name())
-			if ext == ".json" || ext == ".xml" {
-				files = append(files, FileEntry{Path: path, Entry: d})
-			}
-		}
-		return nil
-	})
-
+	// Get all directories matching the pattern
+	dirs, err := filepath.Glob(strPattern)
 	if err != nil {
-		fmt.Printf("Error walking the path %q: %v\n", dir, err)
+		fmt.Printf("Error finding directories with pattern %q: %v\n", strPattern, err)
 		return nil
+	}
+
+	if len(dirs) == 0 {
+		fmt.Printf("No directories match the pattern %q\n", strPattern)
+		return nil
+	}
+
+	for _, dir := range dirs {
+		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() {
+				ext := filepath.Ext(d.Name())
+				if ext == ".json" || ext == ".xml" {
+					files = append(files, FileEntry{Path: path, Entry: d})
+				}
+			}
+			return nil
+		})
+
+		if err != nil {
+			fmt.Printf("Error walking the path %q: %v\n", dir, err)
+		}
 	}
 
 	openAPIEndpoints := make(map[string]int)
@@ -380,7 +392,7 @@ func (v *Venom) GenerateOpenApiReport() error {
 	for _, file := range files {
 		// Load OpenAPI specification if it's a JSON file
 		if strings.HasSuffix(file.Entry.Name(), ".json") && !strings.Contains(file.Entry.Name(), "dump") {
-			openAPI, err := LoadOpenAPISpec(filepath.Join(v.OutputDir, file.Entry.Name()))
+			openAPI, err := LoadOpenAPISpec(file.Path)
 			if err != nil {
 				fmt.Println("Error:", err)
 				continue
@@ -405,7 +417,7 @@ func (v *Venom) GenerateOpenApiReport() error {
 	}
 	for _, file := range files {
 		if strings.HasSuffix(file.Entry.Name(), ".xml") {
-			testsuites, err := LoadJUnitXML(filepath.Join(v.OutputDir, file.Entry.Name()))
+			testsuites, err := LoadJUnitXML(file.Path)
 			if err != nil {
 				fmt.Println("Error:", err)
 				continue
