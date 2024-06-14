@@ -444,9 +444,9 @@ func (v *Venom) GenerateOpenApiReport() error {
 		data = append(data, []byte(line)...)
 	}
 
-	v.PrintFunc("Writing open api report file %s\n", filename)
-	if err := os.WriteFile(filename, data, 0600); err != nil {
+	if err := os.WriteFile(filename, data, 0644); err != nil {
 		return errors.Wrapf(err, "Error while creating file %s", filename)
 	}
+	v.PrintFunc("Writing open api report file %s\n", filename)
 	return nil
 }
