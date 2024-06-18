@@ -84,10 +84,9 @@ func IsHTTPMethod(method string) bool {
 }
 
 func ExtractHttpEndpoint(name string) (string, string) {
-	name = strings.ToLower(name)
 	parts := strings.Fields(name)
 	// check prefix "TestSuite for"
-	if len(parts) >= 5 && parts[0] == "testsuite" && parts[1] == "for" {
+	if len(parts) >= 5 && strings.EqualFold(parts[0], "testsuite") && strings.EqualFold(parts[1], "for") {
 		httpMethod := strings.ToUpper(parts[2])
 		if IsHTTPMethod(httpMethod) {
 			if len(parts) > 5 {
