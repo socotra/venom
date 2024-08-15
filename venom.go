@@ -472,14 +472,21 @@ func (v *Venom) GetOpenApiHtmlReport(openAPIEndpoints map[string]int) {
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 20px;
-            transition: background-color 0.3s, color 0.3s;
+            background-color: #f7f7f7;
+            color: #333;
         }
         .container {
-            max-width: 800px;
+            max-width: 1000px;
             margin: 0 auto;
+            padding: 20px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
         }
         h1 {
             text-align: center;
+            color: #007bff;
+            margin-bottom: 20px;
         }
         table {
             width: 100%;
@@ -487,9 +494,27 @@ func (v *Venom) GetOpenApiHtmlReport(openAPIEndpoints map[string]int) {
             margin-top: 20px;
         }
         th, td {
-            padding: 10px;
+            padding: 12px;
             text-align: left;
             border-bottom: 1px solid #ddd;
+        }
+        th {
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            user-select: none;
+        }
+        th:hover {
+            background-color: #0056b3;
+        }
+        th.sort-asc::after {
+            content: " ▲";
+        }
+        th.sort-desc::after {
+            content: " ▼";
+        }
+        td {
+            background-color: #f9f9f9;
         }
         .toggle-button {
             display: block;
@@ -513,36 +538,62 @@ func (v *Venom) GetOpenApiHtmlReport(openAPIEndpoints map[string]int) {
             background-color: #2c2c2c;
             color: white;
         }
+        .dark-mode table {
+            color: white;
+        }
+        .dark-mode th {
+            background-color: #444;
+        }
+        .dark-mode th:hover {
+            background-color: #666;
+        }
+        .dark-mode td {
+            background-color: #333;
+        }
     </style>
 </head>
 <body class="light-mode">
     <div class="container">
         <h1>OpenAPI Endpoints Report</h1>
         <button class="toggle-button" onclick="toggleMode()">Toggle Dark/Light Mode</button>
-        <table>
-            <tr>
-                <th>Endpoint</th>
-                <th>Count</th>
-            </tr>`)
+        <table id="reportTable">
+            <thead>
+                <tr>
+                    <th onclick="sortTable(0)">Endpoint</th>
+                    <th onclick="sortTable(1)">Count</th>
+                </tr>
+            </thead>`)
 
 	for endpoint, count := range openAPIEndpoints {
 		line := fmt.Sprintf("<tr><td>%s</td><td>%d</td></tr>", endpoint, count)
 		sb.WriteString(line)
-		v.PrintFunc("%s: %d\n", endpoint, count)
 	}
 
 	sb.WriteString(`</table>
     </div>
     <script>
         function toggleMode() {
-            var body = document.body;
-            if (body.classList.contains('light-mode')) {
-                body.classList.remove('light-mode');
-                body.classList.add('dark-mode');
-            } else {
-                body.classList.remove('dark-mode');
-                body.classList.add('light-mode');
-            }
+            document.body.classList.toggle('dark-mode');
+        }
+
+        function sortTable(columnIndex) {
+            const table = document.getElementById("reportTable");
+            const rows = Array.from(table.rows).slice(1);
+            const isAscending = table.querySelectorAll("th")[columnIndex].classList.toggle('sort-asc');
+            table.querySelectorAll("th")[columnIndex].classList.toggle('sort-desc', !isAscending);
+
+            rows.sort((row1, row2) => {
+                const cell1 = row1.cells[columnIndex].innerText.toLowerCase();
+                const cell2 = row2.cells[columnIndex].innerText.toLowerCase();
+
+                if (!isNaN(cell1) && !isNaN(cell2)) {
+                    return isAscending ? cell1 - cell2 : cell2 - cell1;
+                }
+
+                return isAscending ? cell1.localeCompare(cell2) : cell2.localeCompare(cell1);
+            });
+
+            rows.forEach(row => table.appendChild(row));
         }
     </script>
 </body>
