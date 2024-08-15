@@ -438,10 +438,16 @@ func (v *Venom) GenerateOpenApiReport() error {
 
 	var filename = filepath.Join(v.OutputDir, computeOutputFilename("open_api_report.txt"))
 	var data []byte
+	htmlData := make(map[string]int)
 
 	for endpoint, count := range openAPIEndpoints {
+		htmlData[endpoint] = count
 		line := fmt.Sprintf("%s: %d\n", endpoint, count)
 		data = append(data, []byte(line)...)
+	}
+
+	if v.HtmlReport && len(htmlData) > 0 {
+		v.GetOpenApiHtmlReport(htmlData)
 	}
 
 	if err := os.WriteFile(filename, data, 0644); err != nil {
@@ -449,4 +455,104 @@ func (v *Venom) GenerateOpenApiReport() error {
 	}
 	v.PrintFunc("Writing open api report file %s\n", filename)
 	return nil
+}
+
+func (v *Venom) GetOpenApiHtmlReport(openAPIEndpoints map[string]int) {
+	filename := filepath.Join(v.OutputDir, "open_api_report.html")
+
+	var sb strings.Builder
+	sb.WriteString(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenAPI Report</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .toggle-button {
+            display: block;
+            margin: 20px auto;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .toggle-button:hover {
+            background-color: #0056b3;
+        }
+        .light-mode {
+            background-color: white;
+            color: black;
+        }
+        .dark-mode {
+            background-color: #2c2c2c;
+            color: white;
+        }
+    </style>
+</head>
+<body class="light-mode">
+    <div class="container">
+        <h1>OpenAPI Endpoints Report</h1>
+        <button class="toggle-button" onclick="toggleMode()">Toggle Dark/Light Mode</button>
+        <table>
+            <tr>
+                <th>Endpoint</th>
+                <th>Count</th>
+            </tr>`)
+
+	for endpoint, count := range openAPIEndpoints {
+		line := fmt.Sprintf("<tr><td>%s</td><td>%d</td></tr>", endpoint, count)
+		sb.WriteString(line)
+		v.PrintFunc("%s: %d\n", endpoint, count)
+	}
+
+	sb.WriteString(`</table>
+    </div>
+    <script>
+        function toggleMode() {
+            var body = document.body;
+            if (body.classList.contains('light-mode')) {
+                body.classList.remove('light-mode');
+                body.classList.add('dark-mode');
+            } else {
+                body.classList.remove('dark-mode');
+                body.classList.add('light-mode');
+            }
+        }
+    </script>
+</body>
+</html>`)
+
+	err := os.WriteFile(filename, []byte(sb.String()), 0600)
+	if err != nil {
+		fmt.Printf("Error while creating file %s: %v\n", filename, err)
+		return
+	}
+
+	v.PrintFunc("Open HTML report written to %s\n", filename)
 }
