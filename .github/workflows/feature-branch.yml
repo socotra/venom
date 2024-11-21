@@ -27,7 +27,17 @@ jobs:
         run: go mod download
 
       - name: Install gocovmerge
-        run: go install github.com/wadey/gocovmerge@latest
+        run: |
+          go install github.com/wadey/gocovmerge@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH  # Add Go bin to PATH
+
+      - name: Verify gocovmerge Installation
+        run: |
+          which gocovmerge
+          gocovmerge --version || echo "gocovmerge version not available"
+
+      - name: Install Dependencies
+        run: go mod download
 
       - name: Build using Makefile
         run: make build OS=linux ARCH=amd64
