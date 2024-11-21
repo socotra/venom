@@ -90,7 +90,7 @@ $(TESTPKGS_RESULTS): $(GOFILES) $(TESTPKGS_C) $(GO_RICHGO)
 	@-cd $(dir $@) && ./bin.test $(TEST_RUN_ARGS) | tee tests.log | richgo testfilter ;
 
 GO_COV_MERGE := $(GOPATH)/bin/gocovmerge
-$(GO_COV_MERGE):=
+$(GO_COV_MERGE):
 	go install github.com/wadey/gocovmerge@latest
 
 GO_GOJUNIT := $(GOPATH)/bin/go-junit-report
