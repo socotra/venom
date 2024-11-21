@@ -25,7 +25,7 @@ jobs:
 
       - name: Install gocovmerge
         run: |
-          go install github.com/wadey/gocovmerge@latest
+          make /home/runner/go/bin/gocovmerge
           echo "$HOME/go/bin" >> $GITHUB_PATH 
 
       - name: Debug PATH and List Go Bin
