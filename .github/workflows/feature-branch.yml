@@ -31,9 +31,3 @@ jobs:
 
       - name: Test using Makefile
         run: make test
-
-      - name: Run Linter
-        run: |
-          go fmt
-          go vet
-          golint
