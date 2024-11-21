@@ -21,26 +21,10 @@ jobs:
           cache: true
 
       - name: Add Go Bin to PATH
-        run: echo "$HOME/go/bin" >> $GITHUB_PATH
+        run: echo "$GOPATH/bin" >> $GITHUB_PATH
 
-      - name: Install gocovmerge
-        run: |
-          make /home/runner/go/bin/gocovmerge
-          echo "$HOME/go/bin" >> $GITHUB_PATH 
-
-      - name: Debug PATH and List Go Bin
-        run: |
-          echo "Current PATH: $PATH"
-          echo "Listing $HOME/go/bin:"
-          ls -la $HOME/go/bin
-
-      - name: Verify gocovmerge Installation
-        run: |
-          if ! command -v gocovmerge &> /dev/null; then
-            echo "gocovmerge could not be found"
-            exit 1
-          fi
-          echo "gocovmerge is installed at $(which gocovmerge)"
+      - name: Install Dependencies
+        run: go mod download
 
       - name: Build using Makefile
         run: make build OS=linux ARCH=amd64
