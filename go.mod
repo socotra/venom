@@ -1,6 +1,8 @@
 module github.com/ovh/venom
 
-go 1.21
+go 1.22.5
+
+toolchain go1.24.1
 
 require (
 	github.com/Azure/go-amqp v1.0.2
@@ -41,17 +43,20 @@ require (
 	github.com/spf13/cobra v1.7.0
 	github.com/spf13/pflag v1.0.5
 	github.com/streadway/amqp v1.1.0
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 	github.com/yesnault/go-imap v0.0.0-20160710142244-eb9bbb66bd7b
 	go.mongodb.org/mongo-driver v1.12.1
 	golang.org/x/crypto v0.26.0
 	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa
 	golang.org/x/net v0.28.0
 	google.golang.org/grpc v1.65.0
+	gopkg.in/validator.v2 v2.0.1
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.26.0
 )
+
+require github.com/rogpeppe/go-internal v1.12.0 // indirect
 
 require (
 	github.com/ClickHouse/ch-go v0.55.0 // indirect

@@ -27,7 +27,9 @@ tests/pki_variables.yml
 *.xml
 test_results*.html
 !venom_output.html
-**/.travis.yml
-**/.openapi-generator-ignore
-**/.openapi-generator/
+executors/openapi/**/.travis.yml
+executors/openapi/**/.openapi-generator-ignore
+executors/openapi/**/.openapi-generator
 executors/openapi/**/*.md
+executors/openapi/**/*.yaml
+executors/openapi/**/*.sh
