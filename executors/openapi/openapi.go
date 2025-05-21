@@ -11,6 +11,8 @@ import (
 	"github.com/ovh/venom"
 )
 
+const Name = "openapi"
+
 // Executor represents an OpenAPI executor
 type Executor struct {
 	Client     interface{}            `json:"client" yaml:"client"`
