@@ -33,6 +33,8 @@ const Name = "http"
 var (
 	validatorCache     = make(map[string]validator.Validator)
 	validatorCacheLock sync.Mutex
+	openapiLogFile     *os.File
+	openapiLogMutex    sync.Mutex
 )
 
 // New returns a new Executor
@@ -251,16 +253,24 @@ func (Executor) Run(ctx context.Context, step venom.TestStep) (interface{}, erro
 		if vErr == nil {
 			venom.Debug(ctx, "OpenAPI request validator loaded for URL %s", req.URL.String())
 			if ok, errs := v.ValidateHttpRequest(req); !ok {
+				var requestErrors []string
 				for _, verr := range errs {
-					venom.Error(ctx, "OpenAPI request validation error: %s", verr.Message)
+					//venom.Error(ctx, "OpenAPI request validation error: %s", verr.Message)
 					openapiValidationErrors = append(openapiValidationErrors, verr.Message)
+					requestErrors = append(requestErrors, verr.Message)
 				}
+				// Log request validation errors to file
+				logOpenAPIValidationError(ctx, req.URL.String(), req.Method, "Request", requestErrors)
 			}
 		} else {
-			venom.Error(ctx, "OpenAPI request validator error for URL %s: %v", req.URL.String(), vErr)
+			//venom.Error(ctx, "OpenAPI request validator error for URL %s: %v", req.URL.String(), vErr)
 			openapiValidationErrors = append(openapiValidationErrors, vErr.Error())
+			// Log validator error to file
+			logOpenAPIValidationError(ctx, req.URL.String(), req.Method, "Validator", []string{vErr.Error()})
 		}
 		// ---
+	} else {
+		venom.Debug(ctx, "OpenAPI validation is disabled")
 	}
 
 	start := time.Now()
@@ -322,10 +332,14 @@ func (Executor) Run(ctx context.Context, step venom.TestStep) (interface{}, erro
 		if vErr == nil && resp != nil {
 			venom.Debug(ctx, "OpenAPI response validation for URL %s", req.URL.String())
 			if ok, errs := v.ValidateHttpRequestResponse(req, resp); !ok {
+				var responseErrors []string
 				for _, verr := range errs {
-					venom.Error(ctx, "OpenAPI response validation error: %s", verr.Message)
+					//venom.Error(ctx, "OpenAPI response validation error: %s", verr.Message)
 					openapiValidationErrors = append(openapiValidationErrors, verr.Message)
+					responseErrors = append(responseErrors, verr.Message)
 				}
+				// Log response validation errors to file
+				logOpenAPIValidationError(ctx, req.URL.String(), req.Method, "Response", responseErrors)
 			}
 		}
 	}
@@ -636,4 +650,43 @@ func getValidatorForURL(ctx context.Context, specLocation string, u *url.URL) (v
 	}
 	validatorCache[specPath] = v
 	return v, nil
+}
+
+// logOpenAPIValidationError logs OpenAPI validation errors to a file
+func logOpenAPIValidationError(ctx context.Context, url string, method string, errorType string, errors []string) {
+	openapiLogMutex.Lock()
+	defer openapiLogMutex.Unlock()
+
+	// Initialize log file if not already done
+	if openapiLogFile == nil {
+
+		workdir := venom.StringVarFromCtx(ctx, "venom.outputdir")
+		logPath := filepath.Join(workdir, "openapi_validation_errors.log")
+		venom.Debug(ctx, "OpenAPI logPath: %v", logPath)
+		var err error
+		openapiLogFile, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			venom.Error(ctx, "Failed to open OpenAPI validation log file: %v", err)
+			return
+		}
+	}
+
+	// Create timestamp
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+
+	// Write log entry
+	logEntry := fmt.Sprintf("[%s] %s %s - %s validation errors:\n", timestamp, method, url, errorType)
+	for _, err := range errors {
+		logEntry += fmt.Sprintf("  - %s\n", err)
+	}
+	logEntry += "\n"
+
+	if _, err := openapiLogFile.WriteString(logEntry); err != nil {
+		venom.Error(ctx, "Failed to write to OpenAPI validation log file: %v", err)
+	}
+
+	// Flush to ensure immediate write
+	if err := openapiLogFile.Sync(); err != nil {
+		venom.Error(ctx, "Failed to sync OpenAPI validation log file: %v", err)
+	}
 }
