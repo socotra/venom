@@ -333,7 +333,7 @@ func (Executor) Run(ctx context.Context, step venom.TestStep) (interface{}, erro
 		// --- OpenAPI request/response validation ---
 		if vErr == nil && resp != nil {
 			venom.Debug(ctx, "OpenAPI response validation for URL %s", req.URL.String())
-			if ok, errs := v.ValidateHttpRequestResponse(req, resp); !ok {
+			if ok, errs := v.ValidateHttpResponse(req, resp); !ok {
 				// Log response validation errors to file
 				logOpenAPIValidationError(ctx, req.URL.String(), req.Method, "Response", errs)
 			}
@@ -671,7 +671,12 @@ func logOpenAPIValidationError(ctx context.Context, url string, method string, e
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 
 	// Write log entry
-	logEntry := fmt.Sprintf("[%s] %s %s - %s validation errors:\n", timestamp, method, url, errorType)
+
+	logEntry := fmt.Sprintf("%s [%s] [%s] %s %s-  %s validation errors:\n",
+		timestamp,
+		ctx.Value(venom.ContextKey("testsuite")),
+		ctx.Value(venom.ContextKey("testcase")),
+		method, url, errorType)
 	for _, err := range errors {
 		logEntry += fmt.Sprintf("  - %+v\n", err)
 	}
