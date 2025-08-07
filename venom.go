@@ -5,11 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/confluentinc/bincover"
-	"github.com/fatih/color"
-	"github.com/ovh/venom/reporting"
-	"github.com/pkg/errors"
-	"github.com/spf13/cast"
 	"io"
 	"os"
 	"path"
@@ -18,6 +13,12 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/confluentinc/bincover"
+	"github.com/fatih/color"
+	"github.com/ovh/venom/reporting"
+	"github.com/pkg/errors"
+	"github.com/spf13/cast"
 )
 
 var (
@@ -65,13 +66,15 @@ type Venom struct {
 	variables H
 	secrets   H
 
-	LibDir        string
-	OutputFormat  string
-	OutputDir     string
-	StopOnFailure bool
-	HtmlReport    bool
-	Verbose       int
-	OpenApiReport bool
+	LibDir              string
+	OutputFormat        string
+	OutputDir           string
+	StopOnFailure       bool
+	HtmlReport          bool
+	Verbose             int
+	OpenApiReport       bool
+	FailureLinkHeader   string
+	FailureLinkTemplate string
 }
 
 var trace = color.New(color.Attribute(90)).SprintFunc()
