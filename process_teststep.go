@@ -12,6 +12,7 @@ import (
 
 	"github.com/gosimple/slug"
 	"github.com/ovh/venom/interpolate"
+	"github.com/ovh/venom/reporting"
 )
 
 type dumpFile struct {
@@ -23,6 +24,11 @@ type dumpFile struct {
 // RunTestStep executes a venom testcase is a venom context
 func (v *Venom) RunTestStep(ctx context.Context, e ExecutorRunner, tc *TestCase, tsResult *TestStepResult, stepNumber int, rangedIndex int, step TestStep) {
 	ctx = context.WithValue(ctx, ContextKey("executor"), e.Name())
+
+	// Add metrics collector to context if available
+	if v.metricsCollector != nil {
+		ctx = context.WithValue(ctx, reporting.MetricsCollectorContextKey, v.metricsCollector)
+	}
 
 	var assertRes AssertionsApplied
 	var result interface{}
@@ -106,6 +112,22 @@ func (v *Venom) RunTestStep(ctx context.Context, e ExecutorRunner, tc *TestCase,
 
 		tsResult.AssertionsApplied = assertRes
 		tsResult.ComputedVars.AddAll(H(mapResult))
+
+		// Record test check results if metrics collector is enabled
+		if v.metricsCollector != nil {
+			// Record overall test step result
+			stepName := fmt.Sprintf("step_%d", stepNumber)
+			if rangedIndex > 0 {
+				stepName = fmt.Sprintf("step_%d_%d", stepNumber, rangedIndex)
+			}
+			v.metricsCollector.RecordTestCheck(stepName, assertRes.OK)
+
+			// Record individual assertion results
+			for i, assertion := range assertRes.Assertions {
+				checkName := fmt.Sprintf("%s_assertion_%d", stepName, i)
+				v.metricsCollector.RecordTestCheck(checkName, assertion.IsOK)
+			}
+		}
 
 		if !assertRes.OK && len(assertRes.errors) > 0 {
 			if e.Type() == "user" {

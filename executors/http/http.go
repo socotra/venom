@@ -22,6 +22,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 	"github.com/ovh/cds/sdk/interpolate"
 	"github.com/ovh/venom"
+	"github.com/ovh/venom/reporting"
 	libopenapi "github.com/pb33f/libopenapi"
 	validator "github.com/pb33f/libopenapi-validator"
 	"github.com/pb33f/libopenapi-validator/errors"
@@ -340,6 +341,16 @@ func (Executor) Run(ctx context.Context, step venom.TestStep) (interface{}, erro
 		}
 	}
 	// ---
+
+	// Collect metrics if enabled
+	if metricsCollector := reporting.GetMetricsCollectorFromCtx(ctx); metricsCollector != nil {
+		// Normalize endpoint using DPN
+		normalizedEndpoint := NormalizeEndpoint(req.URL.Path, req.Method, req.Header.Get("Content-Type"), []byte(e.Body))
+
+		// Record HTTP request metrics with normalized endpoint
+		duration := time.Duration(result.TimeSeconds * float64(time.Second))
+		metricsCollector.RecordHTTPRequestWithEndpoint(duration, result.StatusCode, req.Method, normalizedEndpoint, nil)
+	}
 
 	if len(openapiValidationErrors) > 0 {
 		result.Err += "\nOpenAPI validation errors:\n" + strings.Join(openapiValidationErrors, "\n")
