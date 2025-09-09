@@ -75,6 +75,14 @@ type Venom struct {
 	OpenApiReport       bool
 	FailureLinkHeader   string
 	FailureLinkTemplate string
+	MetricsEnabled      bool
+	MetricsOutput       string
+	metricsCollector    reporting.MetricsCollector
+}
+
+// SetMetricsCollector sets the metrics collector for the Venom instance
+func (v *Venom) SetMetricsCollector(collector reporting.MetricsCollector) {
+	v.metricsCollector = collector
 }
 
 var trace = color.New(color.Attribute(90)).SprintFunc()
