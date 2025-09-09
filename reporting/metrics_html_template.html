@@ -1608,8 +1608,8 @@
                         <input type="text" class="search-input" id="endpoint-search" placeholder="Search endpoints...">
                         <div class="filter-controls">
                             <label for="min-sample-size">Min Requests:</label>
-                            <input type="range" id="min-sample-size" min="1" max="100" value="5" class="range-input">
-                            <span id="min-sample-value">5</span>
+                            <input type="range" id="min-sample-size" min="1" max="100" value="1" class="range-input">
+                            <span id="min-sample-value">1</span>
                         </div>
                         <select class="filter-select" id="performance-filter">
                             <option value="all">All Performance</option>
@@ -2717,12 +2717,13 @@
                 const metric = metricsData.metrics[key];
 
                 if (metric.type === 'trend' && metric.values.count >= minSampleSize) {
-                    // Check if this is an endpoint metric (not a global metric)
+                    // Check if this is an endpoint metric (not a global metric or step metric)
                     const globalMetrics = ['http_req_duration', 'checks', 'http_req_failed', 'http_reqs'];
                     const isGlobalMetric = globalMetrics.includes(key);
                     const isStatusMetric = key.startsWith('http_req_status_');
+                    const isStepMetric = key.startsWith('step_');
 
-                    if (!isGlobalMetric && !isStatusMetric) {
+                    if (!isGlobalMetric && !isStatusMetric && !isStepMetric) {
                         // This is an endpoint metric
                         let successRate = 100;
                         let isEstimated = false;
@@ -2795,9 +2796,8 @@
                 error_rate: 'compliant'
             };
 
-            // Check minimum sample size requirement
-            const minSamples = (thresholds.options && thresholds.options.min_samples) || 20;
-            if (endpoint.count < minSamples) {
+            // Check minimum sample size requirement - use the same minSampleSize as the filter
+            if (endpoint.count < minSampleSize) {
                 // Return compliant status for all metrics if sample size is insufficient
                 return status;
             }
@@ -3365,7 +3365,7 @@
         const itemsPerPage = 10;
         let currentSort = { column: 'p95', direction: 'desc' };
         let filterTimeout = null;
-        let minSampleSize = 5;
+        let minSampleSize = 1;
         
 
         function debounceFilter() {

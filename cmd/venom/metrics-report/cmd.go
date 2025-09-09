@@ -153,22 +153,28 @@ func runMetricsReport(cmd *cobra.Command, args []string) error {
 
 	// Generate HTML output
 	if generateHTML {
-		// Load threshold configuration for HTML report
+		// Load threshold configuration for HTML report (optional)
 		var thresholdConfig *reporting.ThresholdConfig
+
+		// Try to load thresholds from specified file first, then fallback to thresholds.yml, then defaults
 		if thresholdsFile != "" {
 			// Load from specified file
 			thresholdConfig, err = reporting.LoadThresholdConfig(thresholdsFile)
 			if err != nil {
 				return fmt.Errorf("failed to load threshold config from %s: %w", thresholdsFile, err)
 			}
+			fmt.Printf("Using threshold configuration from %s for HTML report\n", thresholdsFile)
 		} else {
 			// Try to load thresholds.yml from current directory, fallback to defaults
 			if _, err := os.Stat("thresholds.yml"); err == nil {
 				thresholdConfig, err = reporting.LoadThresholdConfig("thresholds.yml")
 				if err != nil {
-					return fmt.Errorf("failed to load threshold config from thresholds.yml: %w", err)
+					// If loading fails, use defaults instead of failing
+					fmt.Printf("Warning: failed to load thresholds.yml, using default configuration: %v\n", err)
+					thresholdConfig = reporting.DefaultThresholdConfig()
+				} else {
+					fmt.Printf("Using threshold configuration from thresholds.yml for HTML report\n")
 				}
-				fmt.Printf("Using threshold configuration from thresholds.yml for HTML report\n")
 			} else {
 				// Use default configuration
 				thresholdConfig = reporting.DefaultThresholdConfig()

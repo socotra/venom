@@ -29,6 +29,7 @@ func SetLogger(logger Logger) {
 type MetricsCollector interface {
 	RecordHTTPRequest(duration time.Duration, statusCode int, err error)
 	RecordHTTPRequestWithEndpoint(duration time.Duration, statusCode int, method, endpoint string, err error)
+	RecordTestCheck(checkName string, passed bool)
 	RecordTestStructure(groups map[string]*TestGroup, setupData map[string]string)
 	GetMetrics() *Metrics
 	Reset()
@@ -90,6 +91,9 @@ type metricsCollector struct {
 	httpErrorsByEndpoint      map[string]int64
 	httpTotalByEndpoint       map[string]int64
 
+	// Test check tracking
+	testChecks map[string]*TestCheck
+
 	testGroups map[string]*TestGroup
 	setupData  map[string]string
 
@@ -104,6 +108,7 @@ func NewMetricsCollector() MetricsCollector {
 		httpStatusCodesByEndpoint: make(map[string]map[int]int64),
 		httpErrorsByEndpoint:      make(map[string]int64),
 		httpTotalByEndpoint:       make(map[string]int64),
+		testChecks:                make(map[string]*TestCheck),
 		testGroups:                make(map[string]*TestGroup),
 		setupData:                 make(map[string]string),
 		startTime:                 time.Now(),
@@ -165,6 +170,27 @@ func (mc *metricsCollector) RecordHTTPRequestWithEndpoint(duration time.Duration
 	mc.httpStatusCodesByEndpoint[endpointKey][statusCode]++
 }
 
+func (mc *metricsCollector) RecordTestCheck(checkName string, passed bool) {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
+	if mc.testChecks[checkName] == nil {
+		mc.testChecks[checkName] = &TestCheck{
+			Name:   checkName,
+			Path:   fmt.Sprintf("::%s", checkName),
+			ID:     generateID(fmt.Sprintf("::%s", checkName)),
+			Passes: 0,
+			Fails:  0,
+		}
+	}
+
+	if passed {
+		mc.testChecks[checkName].Passes++
+	} else {
+		mc.testChecks[checkName].Fails++
+	}
+}
+
 func (mc *metricsCollector) GetMetrics() *Metrics {
 	mc.mu.RLock()
 	defer mc.mu.RUnlock()
@@ -180,7 +206,7 @@ func (mc *metricsCollector) GetMetrics() *Metrics {
 			Path:   "",
 			ID:     "d41d8cd98f00b204e9800998ecf8427e",
 			Groups: mc.testGroups,
-			Checks: make(map[string]*TestCheck),
+			Checks: mc.testChecks,
 		},
 		SetupData: mc.setupData,
 	}
@@ -362,6 +388,8 @@ func (mc *metricsCollector) Reset() {
 	mc.httpStatusCodesByEndpoint = make(map[string]map[int]int64)
 	mc.httpErrorsByEndpoint = make(map[string]int64)
 	mc.httpTotalByEndpoint = make(map[string]int64)
+
+	mc.testChecks = make(map[string]*TestCheck)
 
 	mc.startTime = time.Now()
 	mc.endTime = time.Time{}

@@ -43,17 +43,43 @@ var apiPrefixes = map[string]bool{
 	"graphql": true,
 }
 
+// Global DPN state for sharing across HTTP requests in a test run
+var (
+	globalDPNState *DPNState
+	globalDPNMutex sync.Mutex
+)
+
+// GetGlobalDPNState returns the global DPN state, creating it if needed
+func GetGlobalDPNState() *DPNState {
+	globalDPNMutex.Lock()
+	defer globalDPNMutex.Unlock()
+
+	if globalDPNState == nil {
+		globalDPNState = NewDPNState(nil)
+	}
+	return globalDPNState
+}
+
+// ResetGlobalDPNState resets the global DPN state (useful for testing or new test runs)
+func ResetGlobalDPNState() {
+	globalDPNMutex.Lock()
+	defer globalDPNMutex.Unlock()
+	globalDPNState = nil
+}
+
 // DPNConfig holds configuration for the DPN
 type DPNConfig struct {
-	MaxEndpoints int
-	CacheSize    int
+	MaxEndpoints     int
+	CacheSize        int
+	EnableCollisions bool // If false, aggregate all similar endpoints without hash suffixes
 }
 
 // DefaultDPNConfig returns the default DPN configuration
 func DefaultDPNConfig() *DPNConfig {
 	return &DPNConfig{
-		MaxEndpoints: getMaxEndpoints(),
-		CacheSize:    8192,
+		MaxEndpoints:     getMaxEndpoints(),
+		CacheSize:        8192,
+		EnableCollisions: getEnableCollisions(),
 	}
 }
 
@@ -88,6 +114,17 @@ func getMaxEndpoints() int {
 		}
 	}
 	return 5000 // Default: 5000 endpoints
+}
+
+// getEnableCollisions returns whether collision detection should be enabled
+// Can be configured via VENOM_DPN_ENABLE_COLLISIONS environment variable
+func getEnableCollisions() bool {
+	if envVal := os.Getenv("VENOM_DPN_ENABLE_COLLISIONS"); envVal != "" {
+		if val, err := strconv.ParseBool(envVal); err == nil {
+			return val
+		}
+	}
+	return false // Default: disable collision detection (aggregate all similar endpoints)
 }
 
 // ExtractSimpleEndpoint transforms URLs into stable endpoint templates
@@ -321,6 +358,17 @@ func handleCollisionsAndCardinalityWithState(normalized, original string, state 
 		return "other"
 	}
 
+	// If collision detection is disabled, always return the base normalized name
+	if !state.config.EnableCollisions {
+		// Still track the original for cardinality counting, but don't create hash suffixes
+		if _, exists := state.endpointCollisions[normalized]; !exists {
+			state.endpointCollisions[normalized] = original
+			state.endpointCount++
+		}
+		return normalized
+	}
+
+	// Original collision detection logic
 	if existingOriginal, exists := state.endpointCollisions[normalized]; exists && existingOriginal != original {
 		hash := fmt.Sprintf("%x", md5.Sum([]byte(original)))[:8]
 		normalizedWithHash := normalized + "_" + hash
@@ -367,7 +415,9 @@ func NormalizeEndpoint(path string, method string, contentType string, body []by
 		return method + "_graphql"
 	}
 
-	return ExtractSimpleEndpointWithMethod(path, method)
+	// Use global DPN state for proper collision detection and cardinality limits
+	globalState := GetGlobalDPNState()
+	return ExtractSimpleEndpointWithMethodAndState(path, method, globalState)
 }
 
 // extractGraphQLOperation extracts operationName from GraphQL request body

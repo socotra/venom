@@ -18,7 +18,9 @@ import (
 
 	"github.com/ovh/venom"
 	"github.com/ovh/venom/executors"
+	"github.com/ovh/venom/executors/http"
 	"github.com/ovh/venom/interpolate"
+	"github.com/ovh/venom/reporting"
 )
 
 var (
@@ -39,6 +41,10 @@ var (
 	failureLinkHeader   string
 	failureLinkTemplate string
 
+	// Metrics flags
+	metricsEnabled bool
+	metricsOutput  string
+
 	variablesFlag           *[]string
 	formatFlag              *string
 	varFilesFlag            *[]string
@@ -50,6 +56,8 @@ var (
 	openApiReportFlag       *bool
 	failureLinkHeaderFlag   *string
 	failureLinkTemplateFlag *string
+	metricsEnabledFlag      *bool
+	metricsOutputFlag       *string
 )
 
 func init() {
@@ -64,6 +72,8 @@ func init() {
 	openApiReportFlag = Cmd.Flags().Bool("open-api-report", false, "Generate OpenAPI Report")
 	failureLinkHeaderFlag = Cmd.Flags().String("failure-link-header", "X-Failure-Link", "Header to add to the HTTP response for failure links")
 	failureLinkTemplateFlag = Cmd.Flags().String("failure-link-template", "http://localhost:8080/failure/%s", "Template for failure links")
+	metricsEnabledFlag = Cmd.Flags().Bool("metrics-enabled", false, "Enable metrics collection during test execution")
+	metricsOutputFlag = Cmd.Flags().String("metrics-output", "", "Output file for metrics data (supports {#} placeholder for parallel runs)")
 }
 
 func initArgs(cmd *cobra.Command) {
@@ -136,6 +146,14 @@ func initFromCommandArguments(f *pflag.Flag) {
 	case "failure-link-template":
 		if failureLinkTemplateFlag != nil {
 			failureLinkTemplate = *failureLinkTemplateFlag
+		}
+	case "metrics-enabled":
+		if metricsEnabledFlag != nil {
+			metricsEnabled = *metricsEnabledFlag
+		}
+	case "metrics-output":
+		if metricsOutputFlag != nil {
+			metricsOutput = *metricsOutputFlag
 		}
 	}
 }
@@ -402,6 +420,24 @@ var Cmd = &cobra.Command{
 		v.OpenApiReport = openApiReport
 		v.FailureLinkHeader = failureLinkHeader
 		v.FailureLinkTemplate = failureLinkTemplate
+		v.MetricsEnabled = metricsEnabled
+		v.MetricsOutput = metricsOutput
+
+		// Initialize metrics collector if enabled
+		if metricsEnabled && metricsOutput != "" {
+			// Handle {#} placeholder for parallel execution
+			outputFile := metricsOutput
+			if strings.Contains(outputFile, "{#}") {
+				// For now, use a simple counter - in real parallel execution, this would be set by GNU parallel
+				outputFile = strings.Replace(outputFile, "{#}", "1", 1)
+			}
+			v.MetricsOutput = outputFile
+			metricsCollector := reporting.NewMetricsCollector()
+			v.SetMetricsCollector(metricsCollector)
+
+			// Reset global DPN state for new test run
+			http.ResetGlobalDPNState()
+		}
 
 		if err := v.InitLogger(); err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
