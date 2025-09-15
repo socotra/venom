@@ -121,12 +121,6 @@ func (v *Venom) RunTestStep(ctx context.Context, e ExecutorRunner, tc *TestCase,
 				stepName = fmt.Sprintf("step_%d_%d", stepNumber, rangedIndex)
 			}
 			v.metricsCollector.RecordTestCheck(stepName, assertRes.OK)
-
-			// Record individual assertion results
-			for i, assertion := range assertRes.Assertions {
-				checkName := fmt.Sprintf("%s_assertion_%d", stepName, i)
-				v.metricsCollector.RecordTestCheck(checkName, assertion.IsOK)
-			}
 		}
 
 		if !assertRes.OK && len(assertRes.errors) > 0 {

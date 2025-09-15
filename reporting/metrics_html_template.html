@@ -1800,6 +1800,7 @@
         // Global variables
         let metricsData = {{.MetricsJSON }};
         let thresholds = {{.ThresholdsJSON }};
+        let generationTime = "{{.GenerationTime}}";
 
         // Utility functions
         function debounce(func, wait) {
@@ -1865,8 +1866,20 @@
         });
 
         function initializeReport() {
-            // Set generation time
-            document.getElementById('generation-time').textContent = new Date().toLocaleString();
+            // Set generation time in UTC
+            const utcTime = new Date(generationTime).toLocaleString('en-US', { 
+                timeZone: 'UTC',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+            
+            // Display UTC time
+            document.getElementById('generation-time').textContent = `${utcTime} UTC`;
 
             // Load thresholds
             loadThresholds();
