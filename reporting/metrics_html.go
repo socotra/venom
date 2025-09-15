@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"os"
+	"time"
 
 	"github.com/ovh/venom/reporting/aggregator"
 )
@@ -54,9 +55,11 @@ func GenerateMetricsHTMLReportWithThresholds(metrics *aggregator.Metrics, output
 	data := struct {
 		MetricsJSON    template.JS
 		ThresholdsJSON template.JS
+		GenerationTime string
 	}{
 		MetricsJSON:    template.JS(metricsJSON),
 		ThresholdsJSON: template.JS(thresholdsJSON),
+		GenerationTime: time.Now().UTC().Format(time.RFC3339),
 	}
 
 	err = tmpl.Execute(file, data)
