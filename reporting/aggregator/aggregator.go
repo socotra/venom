@@ -154,18 +154,30 @@ func AggregateMetrics(metricsList []*Metrics, config *Config) (*Metrics, error) 
 
 			normalizedName := normalizeEndpoint(metricName)
 
-			if endpointCount >= config.MaxEndpoints {
+			// Check if this is a new unique endpoint
+			isNewEndpoint := true
+			if existingOriginal, exists := endpointMap[normalizedName]; exists {
+				if existingOriginal == metricName {
+					isNewEndpoint = false
+				} else {
+					// Collision detected, create hash suffix
+					hash := fmt.Sprintf("%x", md5.Sum([]byte(metricName)))[:8]
+					normalizedName = normalizedName + "_" + hash
+				}
+			}
+
+			// Only apply cardinality limit to new unique endpoints
+			if isNewEndpoint && (endpointCount+endpointsBucketed) >= config.MaxEndpoints {
 				if config.NoBucket {
 					continue
 				} else {
 					normalizedName = "other"
 					endpointsBucketed++
 				}
-			} else {
-				if existingOriginal, exists := endpointMap[normalizedName]; exists && existingOriginal != metricName {
-					hash := fmt.Sprintf("%x", md5.Sum([]byte(metricName)))[:8]
-					normalizedName = normalizedName + "_" + hash
-				}
+			}
+
+			// Only increment endpointCount for truly new unique endpoints
+			if isNewEndpoint && normalizedName != "other" {
 				endpointMap[normalizedName] = metricName
 				endpointCount++
 			}
