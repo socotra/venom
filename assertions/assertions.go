@@ -43,6 +43,7 @@ var assertMap = map[string]AssertFunc{
 	"ShouldJSONContainWithKey":     ShouldJSONContainWithKey,
 	"ShouldJSONContainAllWithKey":  ShouldJSONContainAllWithKey,
 	"ShouldNotJSONContainWithKey":  ShouldNotJSONContainWithKey,
+	"ShouldJSONElementWithKey":     ShouldJSONElementWithKey,
 	"ShouldContainKey":             ShouldContainKey,
 	"ShouldNotContainKey":          ShouldNotContainKey,
 	"ShouldBeIn":                   ShouldBeIn,
@@ -743,6 +744,163 @@ func ShouldNotJSONContainWithKey(actual interface{}, expected ...interface{}) er
 		}
 	}
 	return nil
+}
+
+// ShouldJSONElementWithKey receives exactly four parameters. The first is a slice, the
+// second is a key to use for selecting an element (selectorKey), the third is the value
+// that the selectorKey must have (selectorValue), and the fourth is a JSON string containing
+// the properties and values to assert on the selected element.
+// This assertion finds the element in the array where selectorKey == selectorValue, then
+// checks that all properties in the JSON string match the corresponding properties in that element.
+// Only the properties specified in the JSON string are checked (partial match).
+// Equality is determined using ShouldJSONEqual.
+//
+// Example of testsuite file:
+//
+//	name: test ShouldJSONElementWithKey
+//	testcases:
+//	- name: test assertion
+//	  steps:
+//	  - script: |
+//	      echo '[
+//	        {"id": 1, "name": "Alice", "age": 30, "email": "alice@example.com"},
+//	        {"id": 2, "name": "Bob", "age": 25, "email": "bob@example.com"}
+//	      ]'
+//	    assertions:
+//	    - result.systemoutjson ShouldJSONElementWithKey id 1 '{"name": "Alice", "age": 30}'
+//	    - result.systemoutjson ShouldJSONElementWithKey id 2 '{"name": "Bob"}'
+func ShouldJSONElementWithKey(actual interface{}, expected ...interface{}) error {
+	if err := need(3, expected); err != nil {
+		return err
+	}
+
+	actualSlice, err := cast.ToSliceE(actual)
+	if err != nil {
+		return err
+	}
+
+	if reflect.TypeOf(expected[0]).Kind() != reflect.String {
+		return fmt.Errorf("expected '%v' to be a string (selectorKey)", expected[0])
+	}
+	selectorKey := cast.ToString(expected[0])
+
+	// Find the element with matching selectorKey:selectorValue
+	var foundElement interface{}
+	for i := range actualSlice {
+		if reflect.TypeOf(actualSlice[i]).Kind() != reflect.Map && reflect.TypeOf(actualSlice[i]).Kind() != reflect.Struct {
+			return fmt.Errorf("expected '%v' to be a map or a struct", actualSlice[i])
+		}
+
+		val, ok := getMapValue(actualSlice[i], selectorKey)
+		if ok && compareJSONValues(val, expected[1]) {
+			foundElement = actualSlice[i]
+			break
+		}
+	}
+
+	if foundElement == nil {
+		return fmt.Errorf("expected array to contain an element with key '%s' equal to %v but it wasn't found", selectorKey, expected[1])
+	}
+
+	// Parse the JSON string with properties to check
+	expectedPropertiesJSON, err := cast.ToStringE(expected[2])
+	if err != nil {
+		return fmt.Errorf("expected '%v' to be a string (JSON properties)", expected[2])
+	}
+
+	expectedProperties := map[string]interface{}{}
+	if err := json.Unmarshal([]byte(expectedPropertiesJSON), &expectedProperties); err != nil {
+		return fmt.Errorf("invalid JSON string for properties: %v", err)
+	}
+
+	// Get the found element as a map
+	foundElementMap, err := toMap(foundElement)
+	if err != nil {
+		return fmt.Errorf("failed to convert found element to map: %v", err)
+	}
+
+	// Check each property in the expected properties
+	for key, expectedValue := range expectedProperties {
+		actualValue, ok := foundElementMap[key]
+		if !ok {
+			return fmt.Errorf("element with '%s'=%v does not have property '%s'", selectorKey, expected[1], key)
+		}
+
+		// For nested objects, do partial matching (only check keys present in expected)
+		if expectedMap, ok := expectedValue.(map[string]interface{}); ok {
+			if actualMap, ok := actualValue.(map[string]interface{}); ok {
+				for nestedKey, nestedExpectedValue := range expectedMap {
+					nestedActualValue, nestedOk := actualMap[nestedKey]
+					if !nestedOk {
+						return fmt.Errorf("element with '%s'=%v has property '%s' that does not have nested property '%s'", selectorKey, expected[1], key, nestedKey)
+					}
+					if !compareJSONValues(nestedActualValue, nestedExpectedValue) {
+						return fmt.Errorf("element with '%s'=%v has property '%s.%s' with value %v, expected %v", selectorKey, expected[1], key, nestedKey, nestedActualValue, nestedExpectedValue)
+					}
+				}
+				continue
+			}
+		}
+
+		// For non-nested values, compare directly
+		if !compareJSONValues(actualValue, expectedValue) {
+			return fmt.Errorf("element with '%s'=%v has property '%s' with value %v, expected %v", selectorKey, expected[1], key, actualValue, expectedValue)
+		}
+	}
+
+	return nil
+}
+
+// normalizeJSONValue normalizes a value through JSON marshal/unmarshal to handle type conversions
+func normalizeJSONValue(v interface{}) (interface{}, error) {
+	bytes, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var normalized interface{}
+	if err := json.Unmarshal(bytes, &normalized); err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
+// compareJSONValues compares two values after JSON normalization
+func compareJSONValues(actual, expected interface{}) bool {
+	actualNorm, err1 := normalizeJSONValue(actual)
+	expectedNorm, err2 := normalizeJSONValue(expected)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return reflect.DeepEqual(actualNorm, expectedNorm)
+}
+
+// getMapValue gets a value from a map by key, handling different map types
+func getMapValue(m interface{}, key string) (interface{}, bool) {
+	if elemMap, ok := m.(map[string]interface{}); ok {
+		val, found := elemMap[key]
+		return val, found
+	}
+	// For other types, convert to string map
+	elem := cast.ToStringMap(m)
+	val, found := elem[key]
+	return val, found
+}
+
+// toMap converts an element to map[string]interface{}
+func toMap(elem interface{}) (map[string]interface{}, error) {
+	if elemMap, ok := elem.(map[string]interface{}); ok {
+		return elemMap, nil
+	}
+	// For other types, convert to string map then to interface map
+	elemMapStr, err := cast.ToStringMapE(elem)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]interface{})
+	for k, v := range elemMapStr {
+		result[k] = v
+	}
+	return result, nil
 }
 
 // ShouldContainKey receives exactly two parameters. The first is a map and the

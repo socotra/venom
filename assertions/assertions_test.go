@@ -2329,3 +2329,298 @@ func TestShouldJSONEqual(t *testing.T) {
 		})
 	}
 }
+
+func TestShouldJSONElementWithKey(t *testing.T) {
+	type args struct {
+		actual   interface{}
+		expected []interface{}
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+	}{
+		// Success cases - basic properties
+		{
+			name: "single property match",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice", "age": 30},
+					map[string]interface{}{"id": 2, "name": "Bob", "age": 25},
+				},
+				expected: []interface{}{"id", 1, `{"name": "Alice"}`},
+			},
+		},
+		{
+			name: "multiple properties match",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice", "age": 30, "email": "alice@example.com"},
+					map[string]interface{}{"id": 2, "name": "Bob", "age": 25, "email": "bob@example.com"},
+				},
+				expected: []interface{}{"id", 1, `{"name": "Alice", "age": 30}`},
+			},
+		},
+		{
+			name: "partial properties match (ignoring extra properties)",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice", "age": 30, "email": "alice@example.com", "active": true},
+				},
+				expected: []interface{}{"id", 1, `{"name": "Alice", "age": 30}`},
+			},
+		},
+		{
+			name: "select second element",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice"},
+					map[string]interface{}{"id": 2, "name": "Bob"},
+				},
+				expected: []interface{}{"id", 2, `{"name": "Bob"}`},
+			},
+		},
+		// Success cases - nested objects
+		{
+			name: "nested object match",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{
+						"id":       1,
+						"name":     "Alice",
+						"metadata": map[string]interface{}{"role": "admin", "department": "IT"},
+					},
+				},
+				expected: []interface{}{"id", 1, `{"metadata": {"role": "admin"}}`},
+			},
+		},
+		{
+			name: "nested object full match",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{
+						"id":       1,
+						"name":     "Alice",
+						"metadata": map[string]interface{}{"role": "admin", "department": "IT"},
+					},
+				},
+				expected: []interface{}{"id", 1, `{"metadata": {"role": "admin", "department": "IT"}}`},
+			},
+		},
+		{
+			name: "nested object with whitespace",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{
+						"id":       1,
+						"name":     "Alice",
+						"metadata": map[string]interface{}{"role": "admin", "department": "IT"},
+					},
+				},
+				expected: []interface{}{"id", 1, ` { "metadata" : { "role" : "admin" , "department" : "IT" } } `},
+			},
+		},
+		// Success cases - arrays
+		{
+			name: "array property match",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice", "tags": []interface{}{"admin", "developer"}},
+				},
+				expected: []interface{}{"id", 1, `{"tags": ["admin", "developer"]}`},
+			},
+		},
+		{
+			name: "array property with whitespace",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice", "tags": []interface{}{"admin", "developer"}},
+				},
+				expected: []interface{}{"id", 1, ` { "tags" : [ "admin" , "developer" ] } `},
+			},
+		},
+		// Success cases - different value types
+		{
+			name: "boolean property",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice", "active": true},
+				},
+				expected: []interface{}{"id", 1, `{"active": true}`},
+			},
+		},
+		{
+			name: "number property",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice", "age": 30},
+				},
+				expected: []interface{}{"id", 1, `{"age": 30}`},
+			},
+		},
+		{
+			name: "float property",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice", "score": 95.5},
+				},
+				expected: []interface{}{"id", 1, `{"score": 95.5}`},
+			},
+		},
+		// Error cases - element not found
+		{
+			name: "element not found - selector key doesn't exist",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice"},
+					map[string]interface{}{"id": 2, "name": "Bob"},
+				},
+				expected: []interface{}{"id", 3, `{"name": "Charlie"}`},
+			},
+			wantErr: true,
+		},
+		{
+			name: "element not found - selector value doesn't match",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice"},
+					map[string]interface{}{"id": 2, "name": "Bob"},
+				},
+				expected: []interface{}{"id", 99, `{"name": "Alice"}`},
+			},
+			wantErr: true,
+		},
+		// Error cases - property mismatch
+		{
+			name: "property value mismatch",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice", "age": 30},
+				},
+				expected: []interface{}{"id", 1, `{"name": "Bob"}`},
+			},
+			wantErr: true,
+		},
+		{
+			name: "property type mismatch",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice", "age": 30},
+				},
+				expected: []interface{}{"id", 1, `{"age": "30"}`},
+			},
+			wantErr: true,
+		},
+		// Error cases - missing property
+		{
+			name: "missing property",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice"},
+				},
+				expected: []interface{}{"id", 1, `{"age": 30}`},
+			},
+			wantErr: true,
+		},
+		// Error cases - invalid input
+		{
+			name: "not an array",
+			args: args{
+				actual:   map[string]interface{}{"id": 1, "name": "Alice"},
+				expected: []interface{}{"id", 1, `{"name": "Alice"}`},
+			},
+			wantErr: true,
+		},
+		{
+			name: "array element not a map",
+			args: args{
+				actual:   []interface{}{"not a map", 123},
+				expected: []interface{}{"id", 1, `{"name": "Alice"}`},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid JSON string",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice"},
+				},
+				expected: []interface{}{"id", 1, `{"name": "Alice"`}, // missing closing brace
+			},
+			wantErr: true,
+		},
+		{
+			name: "selectorKey not a string",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice"},
+				},
+				expected: []interface{}{123, 1, `{"name": "Alice"}`}, // selectorKey should be string
+			},
+			wantErr: true,
+		},
+		// Error cases - wrong number of arguments
+		{
+			name: "missing arguments",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice"},
+				},
+				expected: []interface{}{"id", 1}, // missing JSON properties
+			},
+			wantErr: true,
+		},
+		{
+			name: "too many arguments",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "name": "Alice"},
+				},
+				expected: []interface{}{"id", 1, `{"name": "Alice"}`, "extra"},
+			},
+			wantErr: true,
+		},
+		// Error cases - nested object mismatch
+		{
+			name: "nested object value mismatch",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{
+						"id":       1,
+						"metadata": map[string]interface{}{"role": "admin", "department": "IT"},
+					},
+				},
+				expected: []interface{}{"id", 1, `{"metadata": {"role": "user"}}`},
+			},
+			wantErr: true,
+		},
+		// Error cases - array mismatch
+		{
+			name: "array property order mismatch",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "tags": []interface{}{"admin", "developer"}},
+				},
+				expected: []interface{}{"id", 1, `{"tags": ["developer", "admin"]}`},
+			},
+			wantErr: true,
+		},
+		{
+			name: "array property value mismatch",
+			args: args{
+				actual: []interface{}{
+					map[string]interface{}{"id": 1, "tags": []interface{}{"admin", "developer"}},
+				},
+				expected: []interface{}{"id", 1, `{"tags": ["admin", "tester"]}`},
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ShouldJSONElementWithKey(tt.args.actual, tt.args.expected...); (err != nil) != tt.wantErr {
+				t.Errorf("ShouldJSONElementWithKey() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
