@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -58,6 +61,7 @@ var (
 	// Output options
 	jsonOutput string
 	htmlOutput string
+	textOutput string
 	jsonOnly   bool
 	htmlOnly   bool
 
@@ -77,6 +81,7 @@ func init() {
 	// Output flags
 	Cmd.Flags().StringVarP(&jsonOutput, "output", "o", "aggregated_metrics.json", "JSON output file path")
 	Cmd.Flags().StringVar(&htmlOutput, "html-output", "metrics_report.html", "HTML output file path")
+	Cmd.Flags().StringVar(&textOutput, "text-output", "metrics_summary.txt", "Text summary output file path")
 	Cmd.Flags().BoolVar(&jsonOnly, "json-only", false, "Generate only JSON output")
 	Cmd.Flags().BoolVar(&htmlOnly, "html-only", false, "Generate only HTML output")
 
@@ -189,40 +194,57 @@ func runMetricsReport(cmd *cobra.Command, args []string) error {
 		fmt.Printf("HTML report generated: %s\n", htmlOutput)
 	}
 
-	// Check thresholds if requested
+	// Check thresholds if requested (before generating summary to get status)
+	var thresholdStatus string
+	var thresholdsConfigured bool
+	var breaches []reporting.ThresholdBreach
 	if checkThresholds {
-		err = checkThresholdBreaches(result)
+		status, configured, breachList, err := checkThresholdBreaches(result)
 		if err != nil {
 			return fmt.Errorf("error checking thresholds: %w", err)
 		}
+		thresholdStatus = status
+		thresholdsConfigured = configured
+		breaches = breachList
 	}
+
+	// Generate text summary
+	err = generateTextSummary(result, thresholdStatus, thresholdsConfigured, breaches, textOutput)
+	if err != nil {
+		return fmt.Errorf("error generating text summary: %w", err)
+	}
+	fmt.Printf("Text summary generated: %s\n", textOutput)
 
 	return nil
 }
 
-func checkThresholdBreaches(metrics *aggregator.Metrics) error {
+func checkThresholdBreaches(metrics *aggregator.Metrics) (string, bool, []reporting.ThresholdBreach, error) {
 	// Load threshold configuration
 	var config *reporting.ThresholdConfig
 	var err error
+	var thresholdsConfigured bool
 
 	if thresholdsFile != "" {
 		// Load from specified file
 		config, err = reporting.LoadThresholdConfig(thresholdsFile)
 		if err != nil {
-			return fmt.Errorf("failed to load threshold config from %s: %w", thresholdsFile, err)
+			return "", false, nil, fmt.Errorf("failed to load threshold config from %s: %w", thresholdsFile, err)
 		}
+		thresholdsConfigured = true
 	} else {
 		// Try to load thresholds.yml from current directory, fallback to defaults
 		if _, err := os.Stat("thresholds.yml"); err == nil {
 			config, err = reporting.LoadThresholdConfig("thresholds.yml")
 			if err != nil {
-				return fmt.Errorf("failed to load threshold config from thresholds.yml: %w", err)
+				return "", false, nil, fmt.Errorf("failed to load threshold config from thresholds.yml: %w", err)
 			}
 			fmt.Printf("Using threshold configuration from thresholds.yml\n")
+			thresholdsConfigured = true
 		} else {
-			// Use default configuration
+			// Use default configuration - not considered "configured"
 			config = reporting.DefaultThresholdConfig()
 			fmt.Printf("Using default threshold configuration\n")
+			thresholdsConfigured = false
 		}
 	}
 
@@ -256,20 +278,27 @@ func checkThresholdBreaches(metrics *aggregator.Metrics) error {
 		if junitOutput != "" {
 			err = generateJUnitXML(breaches, junitOutput)
 			if err != nil {
-				return fmt.Errorf("failed to generate JUnit XML: %w", err)
+				return "❌ Fail", thresholdsConfigured, breaches, fmt.Errorf("failed to generate JUnit XML: %w", err)
 			}
 			fmt.Printf("JUnit XML report generated: %s\n", junitOutput)
 		}
 
+		// Determine status based on errors
+		status := "⚠️  Warning"
+		if summary["error"] > 0 {
+			status = "❌ Fail"
+		}
+
 		// Exit with error code only if fail-on-breaches is explicitly enabled
 		if failOnBreaches {
-			return fmt.Errorf("threshold breaches detected: %d errors, %d warnings", summary["error"], summary["warning"])
+			return status, thresholdsConfigured, breaches, fmt.Errorf("threshold breaches detected: %d errors, %d warnings", summary["error"], summary["warning"])
 		}
+
+		return status, thresholdsConfigured, breaches, nil
 	} else {
 		fmt.Printf("✅ All thresholds passed!\n")
+		return "✅ Pass", thresholdsConfigured, []reporting.ThresholdBreach{}, nil
 	}
-
-	return nil
 }
 
 // convertTestGroup converts aggregator.TestGroup to reporting.TestGroup
@@ -354,6 +383,160 @@ Samples: %d
 
 	// Write JUnit XML footer
 	fmt.Fprintf(file, "</testsuite>\n")
+
+	return nil
+}
+
+func generateTextSummary(metrics *aggregator.Metrics, thresholdStatus string, thresholdsConfigured bool, breaches []reporting.ThresholdBreach, outputFile string) error {
+	file, err := os.Create(outputFile)
+	if err != nil {
+		return fmt.Errorf("failed to create text output file: %w", err)
+	}
+	defer file.Close()
+
+	fmt.Fprintln(file, "⚡ Performance Metrics (Venom)")
+
+	// Get HTTP requests count
+	totalRequests := int64(0)
+	if httpReqs, exists := metrics.Metrics["http_reqs"]; exists {
+		if count, ok := httpReqs.Values["count"].(float64); ok {
+			totalRequests = int64(count)
+		} else if count, ok := httpReqs.Values["count"].(int64); ok {
+			totalRequests = count
+		}
+	}
+
+	// Get HTTP duration metrics
+	avgResponseTime := 0.0
+	p95 := 0.0
+	p99 := 0.0
+	minTime := 0.0
+	maxTime := 0.0
+
+	if httpDuration, exists := metrics.Metrics["http_req_duration"]; exists {
+		if avg, ok := httpDuration.Values["avg"].(float64); ok {
+			avgResponseTime = avg
+		}
+		if p95Val, ok := httpDuration.Values["p(95)"].(float64); ok {
+			p95 = p95Val
+		}
+		if p99Val, ok := httpDuration.Values["p(99)"].(float64); ok {
+			p99 = p99Val
+		}
+		if min, ok := httpDuration.Values["min"].(float64); ok {
+			minTime = min
+		}
+		if max, ok := httpDuration.Values["max"].(float64); ok {
+			maxTime = max
+		}
+	}
+
+	// Get HTTP failures
+	httpFailures := int64(0)
+	failureRate := 0.0
+	if httpFailed, exists := metrics.Metrics["http_req_failed"]; exists {
+		if fails, ok := httpFailed.Values["fails"].(float64); ok {
+			httpFailures = int64(fails)
+		} else if fails, ok := httpFailed.Values["fails"].(int64); ok {
+			httpFailures = fails
+		}
+		if totalRequests > 0 {
+			failureRate = float64(httpFailures) / float64(totalRequests) * 100
+		}
+	}
+
+	// Calculate test duration
+	testDuration := time.Duration(0)
+	if !metrics.StartTime.IsZero() && !metrics.EndTime.IsZero() {
+		testDuration = metrics.EndTime.Sub(metrics.StartTime)
+	}
+
+	// Find top 5 slowest endpoints
+	type endpointStat struct {
+		name string
+		p95  float64
+	}
+	var endpointStats []endpointStat
+
+	// Create a set of endpoints that have breaches (if thresholds are configured)
+	breachingEndpoints := make(map[string]bool)
+	if thresholdsConfigured && len(breaches) > 0 {
+		for _, breach := range breaches {
+			breachingEndpoints[breach.Endpoint] = true
+		}
+	}
+
+	globalMetrics := []string{
+		"checks", "data_received", "data_sent", "http_req_duration",
+		"http_req_failed", "http_reqs", "iterations", "vus", "vus_max",
+		"http_req_blocked", "http_req_connecting", "http_req_sending",
+		"http_req_waiting", "http_req_receiving", "http_req_tls_handshaking",
+	}
+
+	for metricName, metric := range metrics.Metrics {
+		// Skip global metrics
+		isGlobal := false
+		for _, global := range globalMetrics {
+			if metricName == global || strings.HasPrefix(metricName, global+"_") {
+				isGlobal = true
+				break
+			}
+		}
+		if isGlobal {
+			continue
+		}
+
+		// Only process trend metrics (endpoint duration metrics)
+		if metric.Type == "trend" {
+			// Get P95 value for sorting
+			if p95, ok := metric.Values["p(95)"].(float64); ok && p95 > 0 {
+				// If thresholds are configured, only include endpoints that breach thresholds
+				// Otherwise, include all endpoints
+				if !thresholdsConfigured || breachingEndpoints[metricName] {
+					endpointStats = append(endpointStats, endpointStat{
+						name: metricName,
+						p95:  p95,
+					})
+				}
+			}
+		}
+	}
+
+	// Sort by P95 response time (descending)
+	sort.Slice(endpointStats, func(i, j int) bool {
+		return endpointStats[i].p95 > endpointStats[j].p95
+	})
+
+	// Print summary
+	fmt.Fprintf(file, "• Total HTTP Requests: %d\n", totalRequests)
+	fmt.Fprintf(file, "• Avg Response Time: %.0f ms (P95: %.0f ms, P99: %.0f ms)\n", avgResponseTime, p95, p99)
+	fmt.Fprintf(file, "• Min/Max: %.0f ms / %.0f ms\n", minTime, maxTime)
+	fmt.Fprintf(file, "• HTTP Failures: %d (%.2f%% failure rate)\n", httpFailures, failureRate)
+
+	// Only show threshold status if thresholds are configured
+	if thresholdsConfigured {
+		fmt.Fprintf(file, "• Threshold Status: %s\n", thresholdStatus)
+	}
+
+	// Format duration
+	durationMinutes := testDuration.Minutes()
+	if durationMinutes < 1 {
+		fmt.Fprintf(file, "• Test Duration: %.1f sec\n", testDuration.Seconds())
+	} else {
+		fmt.Fprintf(file, "• Test Duration: %.1f min\n", durationMinutes)
+	}
+
+	// Print top 5 slowest endpoints
+	if len(endpointStats) > 0 {
+		fmt.Fprintln(file, "\nTop 5 Slowest Endpoints:")
+		topN := 5
+		if len(endpointStats) < topN {
+			topN = len(endpointStats)
+		}
+		for i := 0; i < topN; i++ {
+			fmt.Fprintf(file, "  %d. %s: %.0f ms (P95)\n", i+1, endpointStats[i].name, endpointStats[i].p95)
+		}
+	}
 
 	return nil
 }
