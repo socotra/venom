@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"time"
 
 	"github.com/gosimple/slug"
@@ -122,15 +120,6 @@ func (v *Venom) RunTestStep(ctx context.Context, e ExecutorRunner, tc *TestCase,
 			}
 			v.metricsCollector.RecordTestCheck(stepName, assertRes.OK)
 		}
-
-		if !assertRes.OK && len(assertRes.errors) > 0 {
-			if e.Type() == "user" {
-				generateFailureLinkForUserExecutor(ctx, result, tsResult, tc)
-			} else {
-				generateFailureLink(ctx, result, tsResult)
-			}
-		}
-
 		if assertRes.OK {
 			break
 		}
@@ -196,107 +185,4 @@ func (v *Venom) runTestStepExecutor(ctx context.Context, e ExecutorRunner, tc *T
 	case <-ctxTimeout.Done():
 		return nil, fmt.Errorf("Timeout after %d second(s)", e.Timeout())
 	}
-}
-
-func generateFailureLink(ctx context.Context, result interface{}, tsResult *TestStepResult) {
-	failureLinkHeader := StringVarFromCtx(ctx, "venom.failure_link_header")
-	if failureLinkHeader == "" {
-		return
-	}
-
-	failureLinkTemplate := StringVarFromCtx(ctx, "venom.failure_link_template")
-	if failureLinkTemplate == "" {
-		return
-	}
-
-	headerValue := extractHeaderValue(ctx, result, failureLinkHeader)
-	if headerValue == "" {
-		Warn(ctx, "Response header %s not found in response; skipping failure link", failureLinkHeader)
-		return
-	}
-
-	tsResult.FailureLink = strings.ReplaceAll(failureLinkTemplate, "{{header}}", headerValue)
-}
-
-func extractHeaderValue(ctx context.Context, result interface{}, headerName string) string {
-	if strResult, ok := result.(string); ok {
-		return strResult
-	}
-
-	if mapResult, ok := result.(map[string]interface{}); ok {
-		if headers, exists := mapResult["headers"]; exists {
-			if headersMap, ok := headers.(map[string]interface{}); ok {
-				if headerValue, exists := headersMap[headerName]; exists {
-					return fmt.Sprintf("%v", headerValue)
-				}
-			}
-		}
-	} else {
-		val := reflect.ValueOf(result)
-		if val.Kind() == reflect.Ptr {
-			val = val.Elem()
-		}
-
-		if val.Kind() == reflect.Struct {
-			headersField := val.FieldByName("Headers")
-			if headersField.IsValid() && headersField.Kind() == reflect.Map {
-				headerValue := headersField.MapIndex(reflect.ValueOf(headerName))
-				if headerValue.IsValid() {
-					return fmt.Sprintf("%v", headerValue.Interface())
-				}
-			}
-		}
-	}
-
-	return ""
-}
-
-func generateFailureLinkForUserExecutor(ctx context.Context, result interface{}, tsResult *TestStepResult, tc *TestCase) {
-	failureLinkHeader := StringVarFromCtx(ctx, "venom.failure_link_header")
-	if failureLinkHeader == "" {
-		return
-	}
-
-	failureLinkTemplate := StringVarFromCtx(ctx, "venom.failure_link_template")
-	if failureLinkTemplate == "" {
-		return
-	}
-
-	// Try processed result first
-	if mapResult, ok := result.(map[string]interface{}); ok {
-		for _, value := range mapResult {
-			if stepResultMap, ok := value.(map[string]interface{}); ok {
-				if headers, exists := stepResultMap["headers"]; exists {
-					if headersMap, ok := headers.(map[string]interface{}); ok {
-						if headerValue, exists := headersMap[failureLinkHeader]; exists {
-							tsResult.FailureLink = strings.ReplaceAll(failureLinkTemplate, "{{header}}", fmt.Sprintf("%v", headerValue))
-							return
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Check internal step results
-	for _, internalStepResult := range tc.TestStepResults {
-		if internalStepResult.Raw != nil {
-			if headerValue := extractHeaderValue(ctx, internalStepResult.Raw, failureLinkHeader); headerValue != "" {
-				tsResult.FailureLink = strings.ReplaceAll(failureLinkTemplate, "{{header}}", headerValue)
-				return
-			}
-		}
-
-		if internalStepResult.ComputedVars != nil {
-			headerKey := fmt.Sprintf("result.headers.%s", failureLinkHeader)
-			if headerValue, exists := internalStepResult.ComputedVars[headerKey]; exists {
-				if headerValueStr, ok := headerValue.(string); ok {
-					tsResult.FailureLink = strings.ReplaceAll(failureLinkTemplate, "{{header}}", headerValueStr)
-					return
-				}
-			}
-		}
-	}
-
-	Warn(ctx, "Response header %s not found in user executor results; skipping failure link", failureLinkHeader)
 }
