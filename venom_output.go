@@ -198,8 +198,9 @@ func outputXMLFormat(tests Tests, verbose int) ([]byte, error) {
 			for _, result := range tc.TestStepResults {
 				for _, failure := range result.Errors {
 					failureValue := failure.Value
+					// Add failure link to the failure message for Jenkins compatibility
 					if result.FailureLink != "" {
-						failureValue += fmt.Sprintf(" – see more details at %s", result.FailureLink)
+						failureValue += fmt.Sprintf(" – see trace at %s", result.FailureLink)
 					}
 					failureXML := FailureXML{
 						Value: failureValue,
