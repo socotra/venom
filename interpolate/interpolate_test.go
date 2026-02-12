@@ -587,6 +587,29 @@ func TestDo(t *testing.T) {
 			want:   "bar",
 			enable: true,
 		},
+		{
+			name: "printf with variable (custom executor output)",
+			args: args{
+				input: "{{ printf \"%s\" .testvar }}",
+				vars: map[string]string{
+					"testvar": "hello",
+				},
+			},
+			want:   "hello",
+			enable: true,
+		},
+		{
+			name: "printf with variable and literal",
+			args: args{
+				input: "{{ printf \"%s %s\" .a .b }}",
+				vars: map[string]string{
+					"a": "foo",
+					"b": "bar",
+				},
+			},
+			want:   "foo bar",
+			enable: true,
+		},
 	}
 	for _, tt := range tests {
 		if !tt.enable {

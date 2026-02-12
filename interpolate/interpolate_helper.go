@@ -89,6 +89,7 @@ func init() {
 		"urlencode": func(s string) string { return url.QueryEscape(s) },
 		"dirname":   func(s string) string { return path.Dir(s) },
 		"basename":  func(s string) string { return path.Base(s) },
+		"printf":    fmt.Sprintf,
 	})
 }
 
