@@ -18,6 +18,12 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/confluentinc/bincover"
+	"github.com/fatih/color"
+	"github.com/ovh/venom/assertions"
+	"github.com/pkg/errors"
+	"github.com/spf13/cast"
 )
 
 var (
@@ -220,8 +226,7 @@ func (v *Venom) getUserExecutorFilesPath(ctx context.Context, vars map[string]st
 			seen[absRelLib] = struct{}{}
 		}
 	}
-
-	// use a map to avoid duplicates
+	//use a map to avoid duplicates
 	filepaths := make(map[string]bool)
 
 	for _, p := range libpaths {
@@ -262,7 +267,7 @@ func (v *Venom) registerUserExecutors(ctx context.Context) error {
 	executorsPath := v.getUserExecutorFilesPath(ctx, vars)
 
 	for _, f := range executorsPath {
-		Info(ctx, "Reading %v", f)
+		Debug(ctx, "Reading %v", f)
 		content, err := os.ReadFile(f)
 		if err != nil {
 			return errors.Wrapf(err, "unable to read file %q", f)
@@ -290,6 +295,57 @@ func (v *Venom) registerUserExecutors(ctx context.Context) error {
 			return errors.Wrapf(err, "unable to register user executor %q from file %q", ux.Executor, f)
 		}
 		Info(ctx, "User executor %q registered", ux.Executor)
+
+		if strings.HasPrefix(ux.Executor, "Should") {
+			err = v.registerUserAssertFunc(ctx, ux.Executor)
+			if err != nil {
+				return errors.Wrapf(err, "unable to register user executor %q from file %q as user assertion", ux.Executor, f)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (v *Venom) registerUserAssertFunc(ctx context.Context, name string) error {
+	_, e, err := v.GetExecutorRunner(ctx, TestStep{"type": name}, H{})
+	if err != nil {
+		return errors.Wrapf(err, "unable to load user executor %q", name)
+	}
+
+	err = assertions.RegisterUserAssertFunc(name, func(actual interface{}, expected ...interface{}) error {
+		// Prepare a minimal context in which the user executor can be run
+		// We only need to register the operands in the var set
+		// as parent contexts will already have been templated
+		tc := &TestCase{TestCaseInput: TestCaseInput{Name: name}}
+		tc.TestSuiteVars.Add("a", actual)
+		if len(expected) > 0 {
+			tc.TestSuiteVars.Add("b", expected[0])
+		}
+		tc.TestSuiteVars.Add("argv", expected)
+		ts := &TestStepResult{}
+
+		_, err := v.RunUserExecutor(ctx, e, tc, ts, TestStep{})
+
+		// We reformat any sub-assertions errors to avoid redundant texts
+		if len(ts.Errors) > 0 {
+			msg := make([]string, len(ts.Errors))
+			for _, e := range ts.Errors {
+				msg = append(msg, fmt.Sprintf(`  %d: Sub-assertion %q failed. %s`,
+					e.StepNumber,
+					RemoveNotPrintableChar(e.Assertion),
+					RemoveNotPrintableChar(e.Error.Error()),
+				))
+			}
+			return errors.New(strings.Join(msg, "\n"))
+		} else if err != nil {
+			return errors.Wrapf(err, "user assertion failed during execution")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrapf(err, "unable to register user assertion function %q", name)
 	}
 
 	return nil
