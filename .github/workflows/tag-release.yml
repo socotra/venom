@@ -19,9 +19,9 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email noreply@github.com
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
           cache: true
       - name: Tidy Go modules
         run: go mod tidy

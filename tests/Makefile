@@ -106,7 +106,7 @@ clean:
 
 merge-coverage:
 	@docker run -v `pwd`:/workspace golang:1.26 sh -c "\
-			go install github.com/wadey/gocovmerge@latest && \
+			go install github.com/wadey/gocovmerge@v0.0.0-20160331181800-b5bfa59ec0ad && \
 			cd /workspace && \
     gocovmerge $(COVER_FILES) > /workspace/venom.cover.out \
 		"

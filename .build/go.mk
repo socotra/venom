@@ -91,7 +91,7 @@ $(TESTPKGS_RESULTS): $(GOFILES) $(TESTPKGS_C) $(GO_RICHGO)
 
 GO_COV_MERGE := $(GOPATH)/bin/gocovmerge
 $(GO_COV_MERGE):
-	go install github.com/wadey/gocovmerge@latest
+	go install github.com/wadey/gocovmerge@v0.0.0-20160331181800-b5bfa59ec0ad
 
 GO_GOJUNIT := $(GOPATH)/bin/go-junit-report
 $(GO_GOJUNIT):
