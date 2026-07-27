@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/textproto"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -433,12 +434,25 @@ func (e Executor) getRequest(ctx context.Context, workdir string) (*http.Request
 			// Considering file will be prefixed by @ (since you could also post regular data in the body)
 			if strings.HasPrefix(value, "@") {
 				// todo: how can we be sure the @ is not the value we wanted to use ?
-				if _, err := os.Stat(value[1:]); !os.IsNotExist(err) {
-					part, err := writer.CreateFormFile(key, filepath.Base(value[1:]))
+				filePath := value[1:]
+				contentType := "application/octet-stream"
+				// Mirrors curl's `-F field=@path;type=content/type` syntax, since
+				// multipart.Writer.CreateFormFile hardcodes application/octet-stream
+				// and can't be overridden, which some servers reject via Content-Type
+				// allow-lists.
+				if idx := strings.LastIndex(filePath, ";type="); idx != -1 {
+					contentType = filePath[idx+len(";type="):]
+					filePath = filePath[:idx]
+				}
+				if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+					header := textproto.MIMEHeader{}
+					header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, escapeQuotes(key), escapeQuotes(filepath.Base(filePath))))
+					header.Set("Content-Type", contentType)
+					part, err := writer.CreatePart(header)
 					if err != nil {
 						return nil, err
 					}
-					if err := writeFile(part, value[1:]); err != nil {
+					if err := writeFile(part, filePath); err != nil {
 						return nil, err
 					}
 					continue
@@ -479,6 +493,14 @@ func (e Executor) getRequest(ctx context.Context, workdir string) (*http.Request
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 	}
 	return req, err
+}
+
+// quoteEscaper mirrors the unexported escaper mime/multipart uses internally
+// for CreateFormFile, since CreatePart requires callers to escape headers themselves.
+var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+
+func escapeQuotes(s string) string {
+	return quoteEscaper.Replace(s)
 }
 
 // writeFile writes the content of the file to an io.Writer

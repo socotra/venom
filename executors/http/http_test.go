@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -176,4 +179,51 @@ func TestCookieRedirect(t *testing.T) {
 	require.Equal(t, result.StatusCode, http.StatusOK)
 
 	require.Equal(t, int32(1), callCount.Load())
+}
+
+func TestMultipartForm_FileContentType(t *testing.T) {
+	tmpFile, err := os.CreateTemp(t.TempDir(), "upload-*.pdf")
+	require.NoError(t, err)
+	_, err = tmpFile.WriteString("fixture content")
+	require.NoError(t, err)
+	require.NoError(t, tmpFile.Close())
+
+	cases := []struct {
+		name        string
+		value       string
+		wantContent string
+	}{
+		{
+			name:        "defaults to octet-stream when no type is given",
+			value:       "@" + tmpFile.Name(),
+			wantContent: "application/octet-stream",
+		},
+		{
+			name:        "honors an explicit ;type= override",
+			value:       "@" + tmpFile.Name() + ";type=application/pdf",
+			wantContent: "application/pdf",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &Executor{
+				MultipartForm: map[string]interface{}{
+					"files": tc.value,
+				},
+			}
+			req, err := e.getRequest(context.Background(), "")
+			require.NoError(t, err)
+			defer req.Body.Close()
+
+			_, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+			require.NoError(t, err)
+
+			mr := multipart.NewReader(req.Body, params["boundary"])
+			part, err := mr.NextPart()
+			require.NoError(t, err)
+			require.Equal(t, tc.wantContent, part.Header.Get("Content-Type"))
+			require.Equal(t, filepath.Base(tmpFile.Name()), part.FileName())
+		})
+	}
 }
