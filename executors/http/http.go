@@ -323,39 +323,28 @@ func (e Executor) getRequest(ctx context.Context, workdir string) (*http.Request
 		}
 		writer = multipart.NewWriter(body)
 		for key, v := range form {
-			value, ok := v.(string)
-			if !ok {
-				return nil, fmt.Errorf("'multipart_form' should be a map with values as strings")
-			}
-			// Considering file will be prefixed by @ (since you could also post regular data in the body)
-			if strings.HasPrefix(value, "@") {
-				// todo: how can we be sure the @ is not the value we wanted to use ?
-				filePath := value[1:]
-				contentType := "application/octet-stream"
-				// Mirrors curl's `-F field=@path;type=content/type` syntax, since
-				// multipart.Writer.CreateFormFile hardcodes application/octet-stream
-				// and can't be overridden, which some servers reject via Content-Type
-				// allow-lists.
-				if idx := strings.LastIndex(filePath, ";type="); idx != -1 {
-					contentType = filePath[idx+len(";type="):]
-					filePath = filePath[:idx]
-				}
-				if _, err := os.Stat(filePath); !os.IsNotExist(err) {
-					header := textproto.MIMEHeader{}
-					header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, escapeQuotes(key), escapeQuotes(filepath.Base(filePath))))
-					header.Set("Content-Type", contentType)
-					part, err := writer.CreatePart(header)
-					if err != nil {
-						return nil, err
+			// A key's value is either a single string, or a list of strings to
+			// send the same field name multiple times (e.g. a repeated "files"
+			// part for a multi-file upload).
+			var values []string
+			switch t := v.(type) {
+			case string:
+				values = []string{t}
+			case []interface{}:
+				for _, item := range t {
+					value, ok := item.(string)
+					if !ok {
+						return nil, fmt.Errorf("'multipart_form' list values must be strings, got %T", item)
 					}
-					if err := writeFile(part, filePath); err != nil {
-						return nil, err
-					}
-					continue
+					values = append(values, value)
 				}
+			default:
+				return nil, fmt.Errorf("'multipart_form' values must be a string or a list of strings, got %T", v)
 			}
-			if err := writer.WriteField(key, value); err != nil {
-				return nil, err
+			for _, value := range values {
+				if err := writeMultipartField(writer, key, value); err != nil {
+					return nil, err
+				}
 			}
 		}
 		if err := writer.Close(); err != nil {
@@ -397,6 +386,36 @@ var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
 
 func escapeQuotes(s string) string {
 	return quoteEscaper.Replace(s)
+}
+
+// writeMultipartField writes a single multipart_form value under key. A value
+// prefixed with "@" is treated as a file to attach (since you could also post
+// regular data in the body); otherwise it's written as a plain form field.
+func writeMultipartField(writer *multipart.Writer, key, value string) error {
+	// todo: how can we be sure the @ is not the value we wanted to use ?
+	if strings.HasPrefix(value, "@") {
+		filePath := value[1:]
+		contentType := "application/octet-stream"
+		// Mirrors curl's `-F field=@path;type=content/type` syntax, since
+		// multipart.Writer.CreateFormFile hardcodes application/octet-stream
+		// and can't be overridden, which some servers reject via Content-Type
+		// allow-lists.
+		if idx := strings.LastIndex(filePath, ";type="); idx != -1 {
+			contentType = filePath[idx+len(";type="):]
+			filePath = filePath[:idx]
+		}
+		if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+			header := textproto.MIMEHeader{}
+			header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, escapeQuotes(key), escapeQuotes(filepath.Base(filePath))))
+			header.Set("Content-Type", contentType)
+			part, err := writer.CreatePart(header)
+			if err != nil {
+				return err
+			}
+			return writeFile(part, filePath)
+		}
+	}
+	return writer.WriteField(key, value)
 }
 
 // writeFile writes the content of the file to an io.Writer
