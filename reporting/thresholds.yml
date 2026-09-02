@@ -1,0 +1,59 @@
+# Venom Threshold Configuration
+# This file defines performance thresholds for API endpoints
+
+# Global options
+options:
+  tolerance_percent: 10    # Allow 10% headroom above thresholds
+  min_samples: 100         # Require at least 100 samples for reliable percentiles
+  soft_fail: false         # Exit with error code on violations
+
+# Default thresholds applied to all endpoints
+defaults:
+  p95: 500ms               # 95th percentile response time
+  p99: 1000ms              # 99th percentile response time
+  avg: 200ms               # Average response time
+  error_rate: 0.01         # 1% error rate maximum
+
+# Group-based thresholds (supports wildcards)
+groups:
+  "auth/*":                # All authentication endpoints
+    p95: 350ms
+    avg: 150ms
+    error_rate: 0.005      # 0.5% error rate for auth endpoints
+
+  "catalog/*":             # All catalog endpoints
+    p95: 450ms
+    avg: 180ms
+
+  "api/v1/*":              # All v1 API endpoints
+    p95: 400ms
+    avg: 160ms
+
+# Endpoint-specific thresholds (highest priority)
+endpoints:
+  "GET /users":            # User listing endpoint
+    p95: 300ms
+    avg: 150ms
+    error_rate: 0.001      # Very low error rate for user data
+
+  "POST /orders":          # Order creation endpoint
+    p95: 800ms             # Allow longer for order processing
+    avg: 400ms
+    error_rate: 0.002
+
+  "GET /health":           # Health check endpoint
+    p95: 50ms              # Health checks should be very fast
+    avg: 20ms
+    error_rate: 0.0        # No errors allowed for health checks
+
+  "POST /auth/login":      # Login endpoint
+    p95: 200ms
+    avg: 100ms
+    error_rate: 0.01       # Higher error rate allowed for auth failures
+
+# Example with custom tolerance
+  "GET /reports":          # Report generation endpoint
+    p95: 2000ms            # Reports can take longer
+    avg: 800ms
+    error_rate: 0.02       # 2% error rate for complex operations
+    tolerance_percent: 20  # Allow 20% headroom for this endpoint

@@ -12,20 +12,34 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/textproto"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mitchellh/mapstructure"
 	"github.com/ovh/venom"
 	"github.com/ovh/venom/interpolate"
+	"github.com/ovh/venom/reporting"
+	libopenapi "github.com/pb33f/libopenapi"
+	validator "github.com/pb33f/libopenapi-validator"
+	"github.com/pb33f/libopenapi-validator/errors"
 )
 
 // Name of executor
 const Name = "http"
+
+// Add a cache for loaded validators
+var (
+	validatorCache     = make(map[string]validator.Validator)
+	validatorCacheLock sync.Mutex
+	openapiLogFile     *os.File
+	openapiLogMutex    sync.Mutex
+)
 
 // New returns a new Executor
 func New() venom.Executor {
@@ -103,6 +117,38 @@ func (Executor) Run(ctx context.Context, step venom.TestStep) (interface{}, erro
 	e.MultipartForm = step["multipart_form"]
 
 	result := Result{}
+
+	varsMap := venom.AllVarsFromCtx(ctx)
+
+	// Initialize Headers if it's nil
+	if e.Headers == nil {
+		e.Headers = make(Headers)
+	}
+
+	// Extract and set all headers that start with "header_"
+	for k, v := range varsMap {
+		if strings.HasPrefix(k, "header_") {
+			headerName := strings.TrimPrefix(k, "header_")
+			headerValue := fmt.Sprintf("%v", v)
+			e.setDefaultHeader(headerName, headerValue)
+			venom.Debug(ctx, "Configured header '%s' with value '%s'", headerName, headerValue)
+		}
+	}
+
+	// If authentication format and value are provided, set the Authorization header
+	if authFormat, okFormat := varsMap["auth_format"]; okFormat {
+		if authValue, okValue := varsMap["auth_value"]; okValue {
+			authHeader := fmt.Sprintf("%v %v", authFormat, authValue)
+			e.setDefaultHeader("Authorization", authHeader)
+			venom.Debug(ctx, "Configured 'Authorization' header")
+		}
+	}
+
+	// If MultipartForm is detected, remove the Content-Type header, as it may be set automatically
+	if e.MultipartForm != nil {
+		delete(e.Headers, "Content-Type")
+		venom.Debug(ctx, "MultipartForm detected, removed 'Content-Type' header")
+	}
 
 	workdir := venom.StringVarFromCtx(ctx, "venom.testsuite.workdir")
 
@@ -206,6 +252,39 @@ func (Executor) Run(ctx context.Context, step venom.TestStep) (interface{}, erro
 	result.Request.Form = cReq.Form
 	result.Request.PostForm = cReq.PostForm
 
+	openApiValidation := varsMap["open_api_validation"]
+	var openapiValidationErrors []string
+	var v validator.Validator
+	var vErr error
+	if openApiValidation != nil && openApiValidation == "true" {
+		// --- OpenAPI request validation ---
+		venom.Debug(ctx, "OpenAPI validation: deriving spec path from URL %s", req.URL.String())
+		specLocation := varsMap["open_api_specs_location"]
+		v, vErr = getValidatorForURL(ctx, specLocation.(string), req.URL)
+		if vErr == nil {
+			venom.Debug(ctx, "OpenAPI request validator loaded for URL %s", req.URL.String())
+			if ok, errs := v.ValidateHttpRequest(req); !ok {
+				for _, verr := range errs {
+					//venom.Error(ctx, "OpenAPI request validation error: %s", verr.Message)
+					openapiValidationErrors = append(openapiValidationErrors, verr.Message)
+				}
+				// Log request validation errors to file
+				logOpenAPIValidationError(ctx, req.URL.String(), req.Method, "Request", errs)
+			}
+		} else {
+			//venom.Error(ctx, "OpenAPI request validator error for URL %s: %v", req.URL.String(), vErr)
+			openapiValidationErrors = append(openapiValidationErrors, vErr.Error())
+			// Log validator error to file - create a custom validation error
+			validatorErr := &errors.ValidationError{
+				Message: vErr.Error(),
+			}
+			logOpenAPIValidationError(ctx, req.URL.String(), req.Method, "Validator", []*errors.ValidationError{validatorErr})
+		}
+		// ---
+	} else {
+		venom.Debug(ctx, "OpenAPI validation is disabled")
+	}
+
 	start := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
@@ -260,6 +339,32 @@ func (Executor) Run(ctx context.Context, step venom.TestStep) (interface{}, erro
 	}
 
 	result.StatusCode = resp.StatusCode
+	if openApiValidation != nil && openApiValidation == "true" {
+		// --- OpenAPI request/response validation ---
+		if vErr == nil && resp != nil {
+			venom.Debug(ctx, "OpenAPI response validation for URL %s", req.URL.String())
+			if ok, errs := v.ValidateHttpResponse(req, resp); !ok {
+				// Log response validation errors to file
+				logOpenAPIValidationError(ctx, req.URL.String(), req.Method, "Response", errs)
+			}
+		}
+	}
+	// ---
+
+	// Collect metrics if enabled
+	if metricsCollector := reporting.GetMetricsCollectorFromCtx(ctx); metricsCollector != nil {
+		// Normalize endpoint using DPN
+		normalizedEndpoint := NormalizeEndpoint(req.URL.Path, req.Method, req.Header.Get("Content-Type"), []byte(e.Body))
+
+		// Record HTTP request metrics with normalized endpoint
+		duration := time.Duration(result.TimeSeconds * float64(time.Second))
+		metricsCollector.RecordHTTPRequestWithEndpoint(duration, result.StatusCode, req.Method, normalizedEndpoint, nil)
+	}
+
+	if len(openapiValidationErrors) > 0 {
+		result.Err += "\nOpenAPI validation errors:\n" + strings.Join(openapiValidationErrors, "\n")
+	}
+
 	return result, nil
 }
 
@@ -322,26 +427,28 @@ func (e Executor) getRequest(ctx context.Context, workdir string) (*http.Request
 		}
 		writer = multipart.NewWriter(body)
 		for key, v := range form {
-			value, ok := v.(string)
-			if !ok {
-				return nil, fmt.Errorf("'multipart_form' should be a map with values as strings")
-			}
-			// Considering file will be prefixed by @ (since you could also post regular data in the body)
-			if strings.HasPrefix(value, "@") {
-				// todo: how can we be sure the @ is not the value we wanted to use ?
-				if _, err := os.Stat(value[1:]); !os.IsNotExist(err) {
-					part, err := writer.CreateFormFile(key, filepath.Base(value[1:]))
-					if err != nil {
-						return nil, err
+			// A key's value is either a single string, or a list of strings to
+			// send the same field name multiple times (e.g. a repeated "files"
+			// part for a multi-file upload).
+			var values []string
+			switch t := v.(type) {
+			case string:
+				values = []string{t}
+			case []interface{}:
+				for _, item := range t {
+					value, ok := item.(string)
+					if !ok {
+						return nil, fmt.Errorf("'multipart_form' list values must be strings, got %T", item)
 					}
-					if err := writeFile(part, value[1:]); err != nil {
-						return nil, err
-					}
-					continue
+					values = append(values, value)
 				}
+			default:
+				return nil, fmt.Errorf("'multipart_form' values must be a string or a list of strings, got %T", v)
 			}
-			if err := writer.WriteField(key, value); err != nil {
-				return nil, err
+			for _, value := range values {
+				if err := writeMultipartField(writer, key, value); err != nil {
+					return nil, err
+				}
 			}
 		}
 		if err := writer.Close(); err != nil {
@@ -375,6 +482,44 @@ func (e Executor) getRequest(ctx context.Context, workdir string) (*http.Request
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 	}
 	return req, err
+}
+
+// quoteEscaper mirrors the unexported escaper mime/multipart uses internally
+// for CreateFormFile, since CreatePart requires callers to escape headers themselves.
+var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+
+func escapeQuotes(s string) string {
+	return quoteEscaper.Replace(s)
+}
+
+// writeMultipartField writes a single multipart_form value under key. A value
+// prefixed with "@" is treated as a file to attach (since you could also post
+// regular data in the body); otherwise it's written as a plain form field.
+func writeMultipartField(writer *multipart.Writer, key, value string) error {
+	// todo: how can we be sure the @ is not the value we wanted to use ?
+	if strings.HasPrefix(value, "@") {
+		filePath := value[1:]
+		contentType := "application/octet-stream"
+		// Mirrors curl's `-F field=@path;type=content/type` syntax, since
+		// multipart.Writer.CreateFormFile hardcodes application/octet-stream
+		// and can't be overridden, which some servers reject via Content-Type
+		// allow-lists.
+		if idx := strings.LastIndex(filePath, ";type="); idx != -1 {
+			contentType = filePath[idx+len(";type="):]
+			filePath = filePath[:idx]
+		}
+		if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+			header := textproto.MIMEHeader{}
+			header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, escapeQuotes(key), escapeQuotes(filepath.Base(filePath))))
+			header.Set("Content-Type", contentType)
+			part, err := writer.CreatePart(header)
+			if err != nil {
+				return err
+			}
+			return writeFile(part, filePath)
+		}
+	}
+	return writer.WriteField(key, value)
 }
 
 // writeFile writes the content of the file to an io.Writer
@@ -427,6 +572,13 @@ func isContentTypeSupported(contentType string) bool {
 func isBodyJSONSupported(resp *http.Response) bool {
 	contentType := parseContentType(resp.Header.Get("Content-Type"))
 	return strings.Contains(contentType, "application/json") || strings.HasSuffix(contentType, "+json")
+}
+
+// setDefaultHeader is a utility function to set a default header if it's not already present
+func (e Executor) setDefaultHeader(headerName, defaultValue string) {
+	if _, present := e.Headers[headerName]; !present {
+		e.Headers[headerName] = defaultValue
+	}
 }
 
 func (e Executor) TLSOptions(ctx context.Context) ([]func(*http.Transport) error, error) {
@@ -517,4 +669,83 @@ func buildResultInfo(result *Result, resp *http.Response) string {
 		resp.Request.Method,
 		resp.Request.URL,
 		body)
+}
+
+// mapURLToSpecPath maps a request URL to an OpenAPI spec file path
+func mapURLToSpecPath(specLocation string, u *url.URL) string {
+	// Extract the service from the path: /{service}/...
+	parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
+	if len(parts) > 0 && parts[0] != "" {
+		service := parts[0]
+		return filepath.Join(specLocation, service+".json")
+	}
+	// If no service found, return empty string (or handle as needed)
+	return ""
+}
+
+// getValidatorForURL loads (and caches) a validator for the given URL
+func getValidatorForURL(ctx context.Context, specLocation string, u *url.URL) (validator.Validator, error) {
+	specPath := mapURLToSpecPath(specLocation, u)
+	venom.Debug(ctx, "OpenAPI spec %s found for URL %s", specPath, u.String())
+	validatorCacheLock.Lock()
+	defer validatorCacheLock.Unlock()
+	if v, ok := validatorCache[specPath]; ok {
+		return v, nil
+	}
+	specBytes, err := os.ReadFile(specPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read OpenAPI spec: %w", err)
+	}
+	doc, docErrs := libopenapi.NewDocument(specBytes)
+	if docErrs != nil {
+		return nil, fmt.Errorf("failed to parse OpenAPI spec: %v", docErrs)
+	}
+	v, vErrs := validator.NewValidator(doc)
+	if vErrs != nil && len(vErrs) > 0 {
+		return nil, fmt.Errorf("failed to create OpenAPI validator: %v", vErrs)
+	}
+	validatorCache[specPath] = v
+	return v, nil
+}
+
+// logOpenAPIValidationError logs OpenAPI validation errors to a file
+func logOpenAPIValidationError(ctx context.Context, url string, method string, errorType string, errors []*errors.ValidationError) {
+	openapiLogMutex.Lock()
+	defer openapiLogMutex.Unlock()
+
+	// Initialize log file if not already done
+	if openapiLogFile == nil {
+
+		workdir := venom.StringVarFromCtx(ctx, "venom.outputdir")
+		logPath := filepath.Join(workdir, "openapi_validation_errors.log")
+		venom.Debug(ctx, "OpenAPI logPath: %v", logPath)
+		var err error
+		openapiLogFile, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			venom.Error(ctx, "Failed to open OpenAPI validation log file: %v", err)
+			return
+		}
+	}
+
+	// Create timestamp
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+
+	// Write log entry
+
+	logEntry := fmt.Sprintf("%s [%s] [%s] %s %s-  %s validation errors:\n",
+		timestamp,
+		ctx.Value(venom.ContextKey("testsuite")),
+		ctx.Value(venom.ContextKey("testcase")),
+		method, url, errorType)
+	for _, err := range errors {
+		logEntry += fmt.Sprintf("  - %+v\n", err)
+	}
+	if _, err := openapiLogFile.WriteString(logEntry); err != nil {
+		venom.Error(ctx, "Failed to write to OpenAPI validation log file: %v", err)
+	}
+
+	// Flush to ensure immediate write
+	if err := openapiLogFile.Sync(); err != nil {
+		venom.Error(ctx, "Failed to sync OpenAPI validation log file: %v", err)
+	}
 }

@@ -2,6 +2,7 @@ package venom
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -216,6 +217,19 @@ func (v *Venom) Process(ctx context.Context, path []string) error {
 	}
 
 	Debug(ctx, "final status: %s", v.Tests.Status)
+
+	// Write metrics if collector is enabled
+	if v.metricsCollector != nil && v.MetricsOutput != "" {
+		metrics := v.metricsCollector.GetMetrics()
+		data, err := json.MarshalIndent(metrics, "", "  ")
+		if err != nil {
+			Error(ctx, "Failed to marshal metrics: %v", err)
+		} else {
+			if err := os.WriteFile(v.MetricsOutput, data, 0644); err != nil {
+				Error(ctx, "Failed to write metrics file: %v", err)
+			}
+		}
+	}
 
 	return nil
 }

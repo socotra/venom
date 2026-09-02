@@ -18,7 +18,9 @@ import (
 
 	"github.com/ovh/venom"
 	"github.com/ovh/venom/executors"
+	"github.com/ovh/venom/executors/http"
 	"github.com/ovh/venom/interpolate"
+	"github.com/ovh/venom/reporting"
 )
 
 var (
@@ -34,6 +36,7 @@ var (
 	htmlReport    bool
 	stopOnFailure bool
 	verbose       int = 0 // Set the default value for verboseFlag
+	openApiReport bool
 
 	variablesFlag     *[]string
 	formatFlag        *string
@@ -43,6 +46,12 @@ var (
 	stopOnFailureFlag *bool
 	htmlReportFlag    *bool
 	verboseFlag       *int
+	openApiReportFlag *bool
+	// Metrics flags
+	metricsEnabled bool
+	metricsOutput  string
+	metricsEnabledFlag      *bool
+	metricsOutputFlag       *string
 )
 
 func init() {
@@ -54,6 +63,9 @@ func init() {
 	variablesFlag = Cmd.Flags().StringArray("var", nil, "--var cds='cds -f config.json' --var cds2='cds -f config.json'")
 	outputDirFlag = Cmd.PersistentFlags().String("output-dir", "", "Output Directory: create tests results file inside this directory")
 	libDirFlag = Cmd.PersistentFlags().String("lib-dir", "", "Lib Directory: can contain user executors. example:/etc/venom/lib:$HOME/venom.d/lib")
+	openApiReportFlag = Cmd.Flags().Bool("open-api-report", false, "Generate OpenAPI Report")
+	metricsEnabledFlag = Cmd.Flags().Bool("metrics-enabled", false, "Enable metrics collection during test execution")
+	metricsOutputFlag = Cmd.Flags().String("metrics-output", "", "Output file for metrics data (supports {#} placeholder for parallel runs)")
 }
 
 func initArgs(cmd *cobra.Command) {
@@ -115,6 +127,18 @@ func initFromCommandArguments(f *pflag.Flag) {
 				variables = mergeVariables(varFlag, variables)
 			}
 		}
+	case "open-api-report":
+		if openApiReportFlag != nil {
+			openApiReport = *openApiReportFlag
+		}
+	case "metrics-enabled":
+		if metricsEnabledFlag != nil {
+			metricsEnabled = *metricsEnabledFlag
+		}
+	case "metrics-output":
+		if metricsOutputFlag != nil {
+			metricsOutput = *metricsOutputFlag
+		}
 	}
 }
 
@@ -161,6 +185,7 @@ type ConfigFileData struct {
 	Secrets        *[]string `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 	VariablesFiles *[]string `json:"variables_files,omitempty" yaml:"variables_files,omitempty"`
 	Verbosity      *int      `json:"verbosity,omitempty" yaml:"verbosity,omitempty"`
+	OpenApiReport  *bool     `json:"open_api_report,omitempty" yaml:"open_api_report,omitempty"`
 }
 
 // Configuration file overrides the environment variables.
@@ -181,6 +206,11 @@ func initFromReaderConfigFile(reader io.Reader) error {
 	}
 	if configFileData.LibDir != nil {
 		libDir = *configFileData.LibDir
+		if absPath, err := filepath.Abs(libDir); err == nil {
+			libDir = absPath
+		} else {
+			return err
+		}
 	}
 	if configFileData.OutputDir != nil {
 		outputDir = *configFileData.OutputDir
@@ -208,6 +238,9 @@ func initFromReaderConfigFile(reader io.Reader) error {
 	}
 	if configFileData.Verbosity != nil {
 		verbose = *configFileData.Verbosity
+	}
+	if configFileData.OpenApiReport != nil {
+		openApiReport = *configFileData.OpenApiReport
 	}
 
 	return nil
@@ -279,6 +312,13 @@ func initFromEnv(environ []string) ([]string, error) {
 		v2 := int(v)
 		verbose = v2
 	}
+	if os.Getenv("OPEN_API_REPORT") != "" {
+		var err error
+		openApiReport, err = strconv.ParseBool(os.Getenv("OPEN_API_REPORT"))
+		if err != nil {
+			return nil, fmt.Errorf("invalid value for OPEN_API_REPORT")
+		}
+	}
 
 	for _, env := range environ {
 		if strings.HasPrefix(env, "VENOM_VAR_") {
@@ -299,6 +339,7 @@ func displayArg(ctx context.Context) {
 	venom.Debug(ctx, "option htmlReport=%v", htmlReport)
 	venom.Debug(ctx, "option varFiles=%v", strings.Join(varFiles, " "))
 	venom.Debug(ctx, "option verbose=%v", verbose)
+	venom.Debug(ctx, "option openApiReport=%v", openApiReport)
 }
 
 // Cmd run
@@ -338,6 +379,25 @@ var Cmd = &cobra.Command{
 		v.StopOnFailure = stopOnFailure
 		v.HtmlReport = htmlReport
 		v.Verbose = verbose
+		v.OpenApiReport = openApiReport
+		v.MetricsEnabled = metricsEnabled
+		v.MetricsOutput = metricsOutput
+
+		// Initialize metrics collector if enabled
+		if metricsEnabled && metricsOutput != "" {
+			// Handle {#} placeholder for parallel execution
+			outputFile := metricsOutput
+			if strings.Contains(outputFile, "{#}") {
+				// For now, use a simple counter - in real parallel execution, this would be set by GNU parallel
+				outputFile = strings.Replace(outputFile, "{#}", "1", 1)
+			}
+			v.MetricsOutput = outputFile
+			metricsCollector := reporting.NewMetricsCollector()
+			v.SetMetricsCollector(metricsCollector)
+
+			// Reset global DPN state for new test run
+			http.ResetGlobalDPNState()
+		}
 
 		if err := v.InitLogger(); err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -400,6 +460,12 @@ var Cmd = &cobra.Command{
 		if err := v.OutputResult(); err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			venom.OSExit(2)
+		}
+
+		if v.OpenApiReport {
+			if err := v.GenerateOpenApiReport(); err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+			}
 		}
 
 		if v.Tests.Status == venom.StatusPass {
