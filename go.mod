@@ -61,6 +61,8 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
+	github.com/bahlo/generic-list-go v0.2.0 // indirect
+	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
 	github.com/couchbase/gocbcore/v10 v10.9.3 // indirect
@@ -93,6 +95,7 @@ require (
 	github.com/jhump/protoreflect/v2 v2.0.0-beta.2 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/magiconair/properties v1.18.11 // indirect
+	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/montanaflynn/stats v0.12.5 // indirect
@@ -103,7 +106,11 @@ require (
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.1 // indirect
+	github.com/speakeasy-api/jsonpath v0.6.2 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.8.1 // indirect
+	github.com/wadey/gocovmerge v0.0.0-20160331181800-b5bfa59ec0ad // indirect
+	github.com/wk8/go-ordered-map/v2 v2.1.9-0.20240815153524-6ea36470d1bd // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.2.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
@@ -121,6 +128,7 @@ require (
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/tools v0.49.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260831171406-18b4a7587f8a // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
