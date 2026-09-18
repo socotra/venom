@@ -208,6 +208,7 @@ func TestResponseHeaders_MultipleValues(t *testing.T) {
 	require.True(t, ok)
 
 	require.Equal(t, "GET, POST, HEAD, OPTIONS", result.Headers["Allow"])
+}
 
 func TestMultipartForm_FileContentType(t *testing.T) {
 	tmpFile, err := os.CreateTemp(t.TempDir(), "upload-*.pdf")
