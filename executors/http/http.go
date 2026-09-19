@@ -406,7 +406,7 @@ func writeMultipartField(writer *multipart.Writer, key, value string) error {
 		}
 		if _, err := os.Stat(filePath); !os.IsNotExist(err) {
 			header := textproto.MIMEHeader{}
-			header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, escapeQuotes(key), escapeQuotes(filepath.Base(filePath))))
+			header.Set("Content-Disposition", multipart.FileContentDisposition(key, filepath.Base(filePath)))
 			header.Set("Content-Type", contentType)
 			part, err := writer.CreatePart(header)
 			if err != nil {
