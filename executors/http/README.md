@@ -13,6 +13,7 @@ In your yaml file, you can use:
   - query_parameters (optional)
   - body (optional)
   - bodyFile (optional)
+  - multipart_form (optional): cannot be combined with body or bodyFile
   - preserve_bodyfile (optional) skip file content interpolation
   - headers (optional)
   - proxy (optional): set to use a proxy server for connection to url
@@ -110,7 +111,35 @@ testcases:
 
 
 ```
-*NB: to post a file with multipart_form, prefix the path to the file with '@'*
+
+## Multipart form
+
+`multipart_form` sends the request body as `multipart/form-data`. It cannot be combined with `body` or `bodyFile`.
+
+Each key is a form field. A value is either a single string, or a list of strings
+to send the same field name once per item (e.g. a repeated `files` part for a multi-file upload).
+
+A value starting with `@` is the path of a file to upload, resolved from the current
+working directory. Append `;type=<content-type>` to set the Content-Type of that part;
+it defaults to `application/octet-stream`. This mirrors curl's `-F field=@path;type=...`.
+
+```yaml
+- name: upload files
+  steps:
+  - type: http
+    method: POST
+    url: https://httpbin.org/post
+    multipart_form:
+      description: "a plain text field"
+      tags:
+        - "first"
+        - "second"
+      files:
+        - "@./testdata/report.pdf;type=application/pdf"
+        - "@./testdata/notes.txt;type=text/plain"
+    assertions:
+    - result.statuscode ShouldEqual 200
+```
 
 ## Output
 
