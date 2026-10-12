@@ -87,8 +87,9 @@ type Skipped struct {
 }
 
 type Testsuite struct {
-	Name      string     `xml:"name,attr"`
-	Testcases []Testcase `xml:"testcase"`
+	Name       string     `xml:"name,attr"`
+	ApiCovered []string   `xml:"api_covered"`
+	Testcases  []Testcase `xml:"testcase"`
 }
 
 type TestSuites struct {
@@ -188,58 +189,55 @@ func CalculateCoverage(openAPI *OpenAPI, testSuites *TestSuites) []EndpointCover
 	}
 
 	for _, ts := range testSuites.Testsuites {
-		method, endpoint := ExtractHttpEndpoint(ts.Name)
-		if method == "" || endpoint == "" {
-			continue
-		}
+		for _, covered := range ts.ResolveEndpoints() {
+			key := fmt.Sprintf("%s %s", covered.Method, covered.Path)
+			ec, found := endpointMap[key]
+			if !found {
+				continue
+			}
 
-		key := fmt.Sprintf("%s %s", method, endpoint)
-		ec, found := endpointMap[key]
-		if !found {
-			continue
-		}
+			for _, tc := range ts.Testcases {
+				ec.TotalTests++
+				passed := (len(tc.Failures) == 0 && tc.Error == nil && tc.Skipped == nil)
+				if passed {
+					ec.PassedTests++
+				} else {
+					ec.FailedTests++
+				}
 
-		for _, tc := range ts.Testcases {
-			ec.TotalTests++
-			passed := (len(tc.Failures) == 0 && tc.Error == nil && tc.Skipped == nil)
-			if passed {
-				ec.PassedTests++
+				cond := ConditionCoverage{
+					Name:   tc.Name,
+					Passed: passed,
+					Detail: fmt.Sprintf("Class: %s", tc.Classname),
+				}
+
+				if !passed {
+					if len(tc.Failures) > 0 {
+						cond.Detail += " | Failure: " + tc.Failures[0].Message
+					}
+					if tc.Error != nil {
+						cond.Detail += " | Error: " + tc.Error.Message
+					}
+					if tc.Skipped != nil {
+						cond.Detail += " | Skipped: " + tc.Skipped.Message
+					}
+				}
+				ec.Conditions = append(ec.Conditions, cond)
+			}
+
+			if ec.TotalTests > 0 {
+				ec.CoveragePct = float64(ec.PassedTests) / float64(ec.TotalTests) * 100.0
+				switch {
+				case ec.CoveragePct == 100:
+					ec.CoverageType = "full"
+				case ec.CoveragePct > 0:
+					ec.CoverageType = "partial"
+				default:
+					ec.CoverageType = "empty"
+				}
 			} else {
-				ec.FailedTests++
-			}
-
-			cond := ConditionCoverage{
-				Name:   tc.Name,
-				Passed: passed,
-				Detail: fmt.Sprintf("Class: %s", tc.Classname),
-			}
-
-			if !passed {
-				if len(tc.Failures) > 0 {
-					cond.Detail += " | Failure: " + tc.Failures[0].Message
-				}
-				if tc.Error != nil {
-					cond.Detail += " | Error: " + tc.Error.Message
-				}
-				if tc.Skipped != nil {
-					cond.Detail += " | Skipped: " + tc.Skipped.Message
-				}
-			}
-			ec.Conditions = append(ec.Conditions, cond)
-		}
-
-		if ec.TotalTests > 0 {
-			ec.CoveragePct = float64(ec.PassedTests) / float64(ec.TotalTests) * 100.0
-			switch {
-			case ec.CoveragePct == 100:
-				ec.CoverageType = "full"
-			case ec.CoveragePct > 0:
-				ec.CoverageType = "partial"
-			default:
 				ec.CoverageType = "empty"
 			}
-		} else {
-			ec.CoverageType = "empty"
 		}
 	}
 
@@ -351,6 +349,47 @@ func ExtractHttpEndpoint(name string) (string, string) {
 		return method, endpoint
 	}
 	return "", ""
+}
+
+// Endpoint is a method/path pair that a testsuite declares it covers.
+type Endpoint struct {
+	Method string
+	Path   string
+}
+
+// parseApiCoveredEntry parses a single `api_covered` entry such as
+// "GET /quotes/{locator}/constraints/dependency" into its HTTP method and path.
+func parseApiCoveredEntry(entry string) (string, string) {
+	parts := strings.Fields(entry)
+	if len(parts) != 2 {
+		return "", ""
+	}
+	method := strings.ToUpper(parts[0])
+	if !KnownHTTPMethods[method] {
+		return "", ""
+	}
+	return method, parts[1]
+}
+
+// ResolveEndpoints returns every endpoint a testsuite covers. The explicit
+// `api_covered` property takes precedence and may declare several endpoints.
+// When it is absent, it falls back to parsing the testsuite name for backward
+// compatibility.
+func (ts Testsuite) ResolveEndpoints() []Endpoint {
+	var endpoints []Endpoint
+	if len(ts.ApiCovered) > 0 {
+		for _, entry := range ts.ApiCovered {
+			if method, path := parseApiCoveredEntry(entry); method != "" && path != "" {
+				endpoints = append(endpoints, Endpoint{Method: method, Path: path})
+			}
+		}
+		return endpoints
+	}
+
+	if method, path := ExtractHttpEndpoint(ts.Name); method != "" && path != "" {
+		endpoints = append(endpoints, Endpoint{Method: method, Path: path})
+	}
+	return endpoints
 }
 
 // GroupCoverageByTag groups endpoints by their first listed tag.
