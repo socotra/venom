@@ -1,6 +1,6 @@
 module github.com/ovh/venom/grpc-example-server
 
-go 1.27
+go 1.27.3
 
 require (
 	google.golang.org/grpc v1.83.2
