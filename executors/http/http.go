@@ -325,7 +325,7 @@ func (Executor) Run(ctx context.Context, step venom.TestStep) (interface{}, erro
 			if strings.ToLower(k) == "set-cookie" {
 				result.Headers[k] = strings.Join(v, "; ")
 			} else {
-				result.Headers[k] = v[0]
+				result.Headers[k] = strings.Join(v, ", ")
 			}
 		}
 	}
@@ -510,7 +510,7 @@ func writeMultipartField(writer *multipart.Writer, key, value string) error {
 		}
 		if _, err := os.Stat(filePath); !os.IsNotExist(err) {
 			header := textproto.MIMEHeader{}
-			header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, escapeQuotes(key), escapeQuotes(filepath.Base(filePath))))
+			header.Set("Content-Disposition", multipart.FileContentDisposition(key, filepath.Base(filePath)))
 			header.Set("Content-Type", contentType)
 			part, err := writer.CreatePart(header)
 			if err != nil {

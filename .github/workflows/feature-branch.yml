@@ -48,8 +48,16 @@ jobs:
       - name: Add Go Bin to PATH
         run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
-      - name: Install Dependencies
-        run: go mod download
+      - name: Tidy and download modules
+        run: |
+          go mod tidy
+          go mod download
+          # Fail if go.mod/go.sum were out of sync so the PR must commit the tidy.
+          if ! git diff --quiet -- go.mod go.sum; then
+            echo "::error::go.mod/go.sum are dirty after 'go mod tidy'. Commit the tidy result."
+            git --no-pager diff -- go.mod go.sum
+            exit 1
+          fi
 
       - name: Build using Makefile
         run: make build OS=linux ARCH=amd64
