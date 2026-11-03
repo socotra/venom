@@ -2,9 +2,19 @@ name: CI Build and Test
 
 on:
   push:
-    branches: [ feature/*, fix/* ]
+    branches:
+      - 'feature/**'
+      - 'fix/**'
+      - 'sync/**'
+      - 'upstream/**'
   pull_request:
-    branches: [ feature/*, fix/* ]
+    branches:
+      - 'feature/**'
+      - 'fix/**'
+      - 'sync/**'
+      - 'upstream/**'
+      - 'internal/develop'
+      - 'internal/master'
 
 jobs:
   build:
@@ -14,17 +24,40 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Read Go version from go.mod
+        id: goversion
+        run: |
+          # Prefer the go directive (e.g. "go 1.27.3"); fall back to toolchain if present.
+          ver=$(awk '/^go / { print $2; exit }' go.mod)
+          if [ -z "${ver}" ]; then
+            ver=$(awk '/^toolchain / { sub(/^go/, "", $2); print $2; exit }' go.mod)
+          fi
+          if [ -z "${ver}" ]; then
+            echo "::error::could not parse Go version from go.mod"
+            exit 1
+          fi
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "Using Go ${ver}"
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26.0'
+          go-version: ${{ steps.goversion.outputs.version }}
           cache: true
 
       - name: Add Go Bin to PATH
         run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
-      - name: Install Dependencies
-        run: go mod download
+      - name: Tidy and download modules
+        run: |
+          go mod tidy
+          go mod download
+          # Fail if go.mod/go.sum were out of sync so the PR must commit the tidy.
+          if ! git diff --quiet -- go.mod go.sum; then
+            echo "::error::go.mod/go.sum are dirty after 'go mod tidy'. Commit the tidy result."
+            git --no-pager diff -- go.mod go.sum
+            exit 1
+          fi
 
       - name: Build using Makefile
         run: make build OS=linux ARCH=amd64

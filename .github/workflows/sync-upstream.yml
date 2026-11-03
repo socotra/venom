@@ -1,0 +1,216 @@
+name: Sync upstream
+
+on:
+  schedule:
+    # ~every 2 weeks: 1st and 15th of the month, 09:00 UTC
+    - cron: '0 9 1,15 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  mirror-master:
+    name: Fast-forward master from ovh/venom
+    runs-on: ubuntu-latest
+    outputs:
+      updated: ${{ steps.ff.outputs.updated }}
+      master_sha: ${{ steps.ff.outputs.master_sha }}
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v5
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "noreply@github.com"
+
+      - name: Add upstream remote
+        run: |
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream https://github.com/ovh/venom.git
+          else
+            git remote add upstream https://github.com/ovh/venom.git
+          fi
+          git fetch upstream master
+          git fetch origin master
+
+      - name: Fast-forward master
+        id: ff
+        run: |
+          set -euo pipefail
+          before=$(git rev-parse HEAD)
+          echo "master before: ${before}"
+
+          if ! git merge --ff-only upstream/master; then
+            echo "::error::master cannot fast-forward from upstream/master. master may have been polluted — reset it to upstream/master (see docs/UPSTREAM.md)."
+            exit 1
+          fi
+
+          after=$(git rev-parse HEAD)
+          echo "master after: ${after}"
+          echo "master_sha=${after}" >> "$GITHUB_OUTPUT"
+
+          if [ "${before}" = "${after}" ]; then
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+            echo "master already up to date with upstream/master"
+          else
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+            git push origin HEAD:master
+            echo "Pushed fast-forward of master to ${after}"
+          fi
+
+  sync-develop:
+    name: Open sync PR into internal/develop
+    needs: mirror-master
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "noreply@github.com"
+
+      - name: Fetch branches
+        run: |
+          git fetch origin master internal/develop
+
+      - name: Check whether internal/develop needs a sync
+        id: need
+        run: |
+          set -euo pipefail
+          ahead=$(git rev-list --count origin/internal/develop..origin/master)
+          echo "Commits on master not in internal/develop: ${ahead}"
+          echo "ahead=${ahead}" >> "$GITHUB_OUTPUT"
+          if [ "${ahead}" -eq 0 ]; then
+            echo "internal/develop already contains master; nothing to sync"
+          fi
+      - name: Require CI_GH_TOKEN for PR operations
+        if: steps.need.outputs.ahead != '0'
+        env:
+          PAT: ${{ secrets.CI_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PAT}" ]; then
+            echo "::error::CI_GH_TOKEN secret is not set. Sync branches can still be pushed with GITHUB_TOKEN, but opening a PR (for QE review) requires a PAT — same secret as create-release.yml."
+            exit 1
+          fi
+          # Probe repo access, not /user — fine-grained PATs often cannot call /user.
+          if ! GH_TOKEN="${PAT}" gh api "repos/${{ github.repository }}" >/dev/null 2>&1; then
+            echo "::error::CI_GH_TOKEN cannot access ${{ github.repository }}. Refresh the PAT (classic repo scope, or fine-grained Contents + Pull requests)."
+            exit 1
+          fi
+          echo "CI_GH_TOKEN OK for PR operations"
+
+      - name: Create sync branch
+        if: steps.need.outputs.ahead != '0'
+        id: merge
+        run: |
+          set -euo pipefail
+          DATE=$(date -u +%Y%m%d)
+          BRANCH="sync/upstream-${DATE}"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+          # Never commit <<<<<<< markers — that breaks CI and hides conflicts in the PR UI.
+          # Clean merge: branch = internal/develop + master (CI tests the merged tree).
+          # Conflicts: branch = master only so GitHub reports real merge conflicts on the PR.
+          git checkout -B "${BRANCH}" origin/internal/develop
+          conflict=false
+          if git merge --no-edit origin/master; then
+            echo "Merged master into ${BRANCH} cleanly"
+          else
+            conflict=true
+            echo "Merge conflicts detected. Files:"
+            git diff --name-only --diff-filter=U || true
+            git merge --abort
+            git checkout -B "${BRANCH}" origin/master
+            echo "Reset ${BRANCH} to origin/master so the PR surfaces GitHub conflicts"
+          fi
+          echo "conflict=${conflict}" >> "$GITHUB_OUTPUT"
+
+          # force-with-lease: overwrite a same-day branch that may still have
+          # an old markers commit from a previous broken sync attempt.
+          git push --force-with-lease -u origin "HEAD:${BRANCH}"
+
+      - name: Ensure needs-manual-merge label exists
+        if: steps.need.outputs.ahead != '0' && steps.merge.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.CI_GH_TOKEN }}
+        run: |
+          gh label create needs-manual-merge \
+            --description "Upstream sync PR has merge conflicts" \
+            --color B60205 \
+            --force >/dev/null 2>&1 || true
+
+      - name: Open or update pull request for QE review
+        if: steps.need.outputs.ahead != '0'
+        env:
+          GH_TOKEN: ${{ secrets.CI_GH_TOKEN }}
+          BRANCH: ${{ steps.merge.outputs.branch }}
+          CONFLICT: ${{ steps.merge.outputs.conflict }}
+          MASTER_SHA: ${{ needs.mirror-master.outputs.master_sha }}
+        run: |
+          set -euo pipefail
+          # Prefer REST over `gh pr edit/reviewer` — those GraphQL calls need read:org,
+          # which CI_GH_TOKEN (repo + write:packages) does not have.
+
+          TITLE="chore: sync upstream into internal/develop (${BRANCH#sync/upstream-})"
+          if [ "${CONFLICT}" = "true" ]; then
+            BODY=$(cat <<EOF
+          Sync \`master\` (\`${MASTER_SHA}\`) into \`internal/develop\` via \`${BRANCH}\`.
+
+          **Conflicts:** resolve in GitHub, or locally:
+          \`\`\`
+          git fetch origin && git checkout ${BRANCH}
+          git merge origin/internal/develop
+          # fix, commit, make test, git push
+          \`\`\`
+
+          Needs **@socotra/quality-engineering** approval. See docs/UPSTREAM.md.
+          EOF
+            )
+          else
+            BODY=$(cat <<EOF
+          Sync \`master\` (\`${MASTER_SHA}\`) into \`internal/develop\` via \`${BRANCH}\`.
+
+          Needs **@socotra/quality-engineering** approval. See docs/UPSTREAM.md.
+          EOF
+            )
+          fi
+
+          PR_NUMBER=$(gh pr list --head "${BRANCH}" --base internal/develop --state open --json number --jq '.[0].number // empty')
+
+          if [ -n "${PR_NUMBER}" ]; then
+            gh api --method PATCH "repos/${{ github.repository }}/pulls/${PR_NUMBER}" \
+              -f title="${TITLE}" -f body="${BODY}" --silent
+            echo "Updated PR #${PR_NUMBER}"
+          else
+            ARGS=(--base internal/develop --head "${BRANCH}" --title "${TITLE}" --body "${BODY}")
+            if [ "${CONFLICT}" = "true" ]; then
+              ARGS+=(--draft)
+            fi
+            PR_URL=$(gh pr create "${ARGS[@]}")
+            PR_NUMBER=$(echo "${PR_URL}" | grep -oE '[0-9]+$')
+            echo "Opened PR #${PR_NUMBER}: ${PR_URL}"
+          fi
+
+          # Request QE via REST (no read:org / GraphQL). Never auto-approve.
+          if ! gh api --method POST "repos/${{ github.repository }}/pulls/${PR_NUMBER}/requested_reviewers" \
+              -f "team_reviewers[]=quality-engineering" --silent; then
+            echo "::warning::Could not request @socotra/quality-engineering; assign manually on #${PR_NUMBER}"
+          fi
+
+          if [ "${CONFLICT}" = "true" ]; then
+            gh api --method POST "repos/${{ github.repository }}/issues/${PR_NUMBER}/labels" \
+              -f "labels[]=needs-manual-merge" --silent \
+              || echo "::warning::Could not add needs-manual-merge label"
+          fi

@@ -55,6 +55,7 @@ Venom is a CLI (Command Line Interface) that aims to create, manage and run your
   - [How to test?](#how-to-test)
     - [Unit tests:](#unit-tests)
     - [Integration tests:](#integration-tests)
+- [Branches and upstream](#branches-and-upstream)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -350,6 +351,35 @@ testcases:
     assertions:
     - result.statuscode ShouldEqual 200
 
+```
+
+### HTTP multipart form
+
+`multipart_form` sends the request body as `multipart/form-data`. It cannot be combined with `body` or `bodyFile`. See the [HTTP executor](https://github.com/ovh/venom/tree/master/executors/http) for the full field list.
+
+Each key is a form field. A value is either a single string, or a list of strings
+to send the same field name once per item (e.g. a repeated `files` part for a multi-file upload).
+
+A value starting with `@` is the path of a file to upload, resolved from the current
+working directory. Append `;type=<content-type>` to set the Content-Type of that part;
+it defaults to `application/octet-stream`. This mirrors curl's `-F field=@path;type=...`.
+
+```yaml
+- name: upload files
+  steps:
+  - type: http
+    method: POST
+    url: https://httpbin.org/post
+    multipart_form:
+      description: "a plain text field"
+      tags:
+        - "first"
+        - "second"
+      files:
+        - "@./testdata/report.pdf;type=application/pdf"
+        - "@./testdata/notes.txt;type=text/plain"
+    assertions:
+    - result.statuscode ShouldEqual 200
 ```
 
 ## Executors
@@ -1059,12 +1089,35 @@ make clean
 make stop-test-stack
 ```
 
+# Branches and upstream
+
+This repository (`socotra/venom`) is a fork of [ovh/venom](https://github.com/ovh/venom).
+
+| Branch | Purpose |
+|--------|---------|
+| `master` | Mirror of upstream `ovh/venom` `master` (fast-forward only) |
+| `internal/develop` | Day-to-day development (protected) |
+| `internal/master` | Releases / testing builds |
+| `upstream/<name>` | Changes intended to contribute back to ovh |
+| `feature/*`, `fix/*` | Fork-only work based on `internal/develop` |
+
+```bash
+make upstream-status              # how far behind are we?
+make upstream-sync                # pull upstream into a sync branch
+make upstream-feature NAME=foo    # start an upstream-bound change
+make upstream-check               # ensure the branch has no fork-only files
+```
+
+Full details: [docs/UPSTREAM.md](./docs/UPSTREAM.md).
+
 # Contributing
 
 <a href="https://gitpod.io/#https://github.com/ovh/venom"><img src="https://img.shields.io/badge/Contribute%20with-Gitpod-908a85?logo=gitpod" alt="Contribute with Gitpod"/></a>
 
 Please read the [contributing guide](./CONTRIBUTING.md) to learn about how you can contribute to Venom ;-).
 There is no small contribution, don't hesitate!
+
+For this fork's branch model and how to send fixes upstream, see [docs/UPSTREAM.md](./docs/UPSTREAM.md).
 
 Our awesome contributors:
 

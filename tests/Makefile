@@ -10,7 +10,6 @@ endef
 
 docker-network := venom-test-net
 
-COVER_FILES = $(shell find . -name "*.coverprofile")
 PKGS_COMMA_SEP = go list -f '{{ join .Deps "\n" }}{{"\n"}}{{.ImportPath}}' . | grep github.com/ovh/venom | grep -v vendor | tr '\n' ',' | sed 's/,$$//'
 
 venom-postgres.cid:
@@ -88,7 +87,7 @@ build-test-binary:
 	CGO_ENABLED=1 go test -coverpkg $$TEMP -c . -o ../../tests/venom.test -ldflags "-X github.com/ovh/venom.IsTest=true" -tags testbincover;
 
 build-test-binary-docker:
-	docker run -v `pwd`/..:/workspace golang:1.27 sh -c "cd /workspace/tests && make build-test-binary"
+	docker run -v `pwd`/..:/workspace golang:1.27.3 sh -c "cd /workspace/tests && make build-test-binary"
 
 run-test: generate-venom-pki
 	VENOM_VAR_MY_ENVAR=foo  ./venom_wrapper.sh run \
@@ -103,8 +102,10 @@ wait-for-kafka:
 
 clean:
 	@rm -f *.prof *.html *.xml *.log *.dump.json *.args.file *.error.out *.out *.test.out *.coverprofile
+	@rm -rf covdata
 
 merge-coverage:
-	@docker run -v `pwd`/..:/workspace -w /workspace golang:1.27 sh -c "\
-			go tool gocovmerge $$(find tests -name '*.coverprofile') > tests/venom.cover.out \
+	@docker run -v `pwd`:/workspace golang:1.27 sh -c "\
+			cd /workspace && \
+			go tool covdata textfmt -i=covdata -o venom.cover.out \
 		"

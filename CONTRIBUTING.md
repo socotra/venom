@@ -26,7 +26,23 @@ It can be accessed online too:
 
 https://www.kernel.org/doc/Documentation/process/submitting-patches.rst
 
-You can submit your patches via GitHub
+You can submit your patches via GitHub.
+
+### Sign-off (DCO) — required for upstream
+
+Upstream [ovh/venom](https://github.com/ovh/venom) requires a Developer Certificate
+of Origin sign-off on every commit. Use:
+
+```bash
+git commit -s -m "your message"
+```
+
+That appends a `Signed-off-by: Your Name <you@example.com>` line matching your
+`user.name` / `user.email`. See the DCO text below.
+
+When contributing **from this fork back to ovh**, branch from `master` as
+`upstream/<name>`, keep fork-only paths out of the diff, and run
+`make upstream-check`. Details: [docs/UPSTREAM.md](./docs/UPSTREAM.md).
 
 ## Licensing for new files:
 
