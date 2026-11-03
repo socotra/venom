@@ -8,6 +8,7 @@ CURRENT_PACKAGE 	= $(shell $(GO_LIST))
 TARGET_DIST 		:= ./dist
 TARGET_RESULTS 		:= ./results
 GO_COVDATA_DIR 		:= $(abspath $(TARGET_RESULTS))/covdata
+GOPATH := $(shell go env GOPATH)
 
 PKGS_COMMA_SEP = go list -f '{{ join .Deps "\n" }}{{"\n"}}{{.ImportPath}}' . | grep github.com/ovh/venom | grep -v vendor | tr '\n' ',' | sed 's/,$$//'
 
@@ -80,7 +81,7 @@ TESTPKGS_RESULTS = $(foreach PKG, $(TESTPKGS), $(TESTPKGS_RESULTS_LOG_FILE))
 $(HOME)/.richstyle.yml:
 	echo "leaveTestPrefix: true" > $(HOME)/.richstyle.yml
 
-GO_RICHGO = ${GOPATH}/bin/richgo
+GO_RICHGO := $(GOPATH)/bin/richgo
 $(GO_RICHGO): $(HOME)/.richstyle.yml
 	go install github.com/kyoh86/richgo@latest
 
@@ -94,11 +95,11 @@ GO_GOJUNIT = ${GOPATH}/bin/go-junit-report
 $(GO_GOJUNIT):
 	go install github.com/jstemmer/go-junit-report@latest
 
-GO_COBERTURA = ${GOPATH}/bin/gocover-cobertura
+GO_COBERTURA := $(GOPATH)/bin/gocover-cobertura
 $(GO_COBERTURA):
 	go install github.com/t-yuki/gocover-cobertura@latest
 
-GO_XUTOOLS = ${GOPATH}/bin/xutools
+GO_XUTOOLS := $(GOPATH)/bin/xutools
 $(GO_XUTOOLS):
 	go install github.com/richardlt/xutools@latest
 

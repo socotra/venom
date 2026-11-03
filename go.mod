@@ -1,6 +1,6 @@
 module github.com/ovh/venom
 
-go 1.27.0
+go 1.27.3
 
 toolchain go1.27.3
 
@@ -37,6 +37,8 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/mndrix/tap-go v0.0.0-20171203230836-629fa407e90b
 	github.com/ovh/go-ovh v1.9.0
+	github.com/pb33f/libopenapi v0.22.3
+	github.com/pb33f/libopenapi-validator v0.4.7
 	github.com/pkg/errors v0.9.1
 	github.com/rockbears/yaml v0.4.0
 	github.com/rubenv/sql-migrate v1.8.1
@@ -61,6 +63,8 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
+	github.com/bahlo/generic-list-go v0.2.0 // indirect
+	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
 	github.com/couchbase/gocbcore/v10 v10.10.0 // indirect
@@ -128,3 +132,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
+
+tool github.com/wadey/gocovmerge

@@ -87,7 +87,7 @@ build-test-binary:
 	CGO_ENABLED=1 go test -coverpkg $$TEMP -c . -o ../../tests/venom.test -ldflags "-X github.com/ovh/venom.IsTest=true" -tags testbincover;
 
 build-test-binary-docker:
-	docker run -v `pwd`/..:/workspace golang:1.27 sh -c "cd /workspace/tests && make build-test-binary"
+	docker run -v `pwd`/..:/workspace golang:1.27.3 sh -c "cd /workspace/tests && make build-test-binary"
 
 run-test: generate-venom-pki
 	VENOM_VAR_MY_ENVAR=foo  ./venom_wrapper.sh run \

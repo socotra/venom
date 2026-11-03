@@ -9,6 +9,7 @@ DOCKER_IMAGE_TAG 	= $(shell echo $(DOCKER_IMAGE) | cut -d ':' -f 2)
 ##### ^^^^^^ EDIT ABOVE ^^^^^^ #####
 
 include ./.build/core.mk
+include ./.build/upstream.mk
 
 ifneq (,$(strip $(filter build dist run fmt lint clean test test-xunit,$(MAKECMDGOALS))))
 include ./.build/go.mk
@@ -43,7 +44,7 @@ $(ALL_RESULTS_TARGETS):
 	$(info copying $(call get_results_from_target, $@) to $@)
 	@cp -f $(call get_results_from_target, $@) $@
 
-.PHONY: build lint clean testrun test dist test-xunit package
+.PHONY: build lint clean testrun test dist test-xunit package upstream-status upstream-sync upstream-feature upstream-check
 
 build: ## build all components and push them into dist directory
 	$(info Building Component venom)

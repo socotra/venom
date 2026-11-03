@@ -28,7 +28,7 @@ func TestRunCmd(t *testing.T) {
 	rootCmd := New()
 	rootCmd.SetArgs(validArgs)
 	venom.IsTest = "test"
-	assert.Equal(t, 3, len(rootCmd.Commands()))
+	assert.Equal(t, 4, len(rootCmd.Commands()))
 	err := rootCmd.Execute()
 	assert.NoError(t, err)
 	rootCmd.Execute()

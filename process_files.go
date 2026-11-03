@@ -209,6 +209,7 @@ func (v *Venom) readFiles(ctx context.Context, filesPath []string) (err error) {
 
 		ts := TestSuite{
 			Name:        testSuiteInput.Name,
+			APICovered:  testSuiteInput.APICovered,
 			Description: testSuiteInput.Description,
 			TestCases:   make([]TestCase, len(testSuiteInput.TestCases)),
 			Vars:        testSuiteInput.Vars,

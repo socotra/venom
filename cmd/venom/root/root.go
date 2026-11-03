@@ -3,6 +3,7 @@ package root
 import (
 	"github.com/spf13/cobra"
 
+	metricsreport "github.com/ovh/venom/cmd/venom/metrics-report"
 	"github.com/ovh/venom/cmd/venom/run"
 	"github.com/ovh/venom/cmd/venom/update"
 	"github.com/ovh/venom/cmd/venom/version"
@@ -23,4 +24,5 @@ func addCommands(cmd *cobra.Command) {
 	cmd.AddCommand(run.Cmd)
 	cmd.AddCommand(version.Cmd)
 	cmd.AddCommand(update.Cmd)
+	cmd.AddCommand(metricsreport.Cmd)
 }
