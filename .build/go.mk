@@ -2,12 +2,16 @@
 
 GO_BUILD 			= CGO_ENABLED=0 go build -installsuffix cgo
 GO_LIST 			= env GO111MODULE=on go list
-TEST_C_CMD 			= go test -c
-TEST_RUN_ARGS 		= -test.v -test.timeout 600s -test.coverprofile=profile.coverprofile
+TEST_C_CMD 			= go test -c -cover
+TEST_RUN_ARGS 		= -test.v -test.timeout 600s -test.gocoverdir=$(GO_COVDATA_DIR)
 CURRENT_PACKAGE 	= $(shell $(GO_LIST))
 TARGET_DIST 		:= ./dist
 TARGET_RESULTS 		:= ./results
+<<<<<<< HEAD
 GOPATH := $(shell go env GOPATH)
+=======
+GO_COVDATA_DIR 		:= $(abspath $(TARGET_RESULTS))/covdata
+>>>>>>> origin/master
 
 PKGS_COMMA_SEP = go list -f '{{ join .Deps "\n" }}{{"\n"}}{{.ImportPath}}' . | grep github.com/ovh/venom | grep -v vendor | tr '\n' ',' | sed 's/,$$//'
 
@@ -87,9 +91,14 @@ $(GO_RICHGO): $(HOME)/.richstyle.yml
 EXIT_TESTS := 0
 $(TESTPKGS_RESULTS): $(GOFILES) $(TESTPKGS_C) $(GO_RICHGO)
 	$(info *** executing tests in $(dir $@))
+	@mkdir -p $(GO_COVDATA_DIR)
 	@-cd $(dir $@) && ./bin.test $(TEST_RUN_ARGS) | tee tests.log | richgo testfilter ;
 
+<<<<<<< HEAD
 GO_GOJUNIT := $(GOPATH)/bin/go-junit-report
+=======
+GO_GOJUNIT = ${GOPATH}/bin/go-junit-report
+>>>>>>> origin/master
 $(GO_GOJUNIT):
 	go install github.com/jstemmer/go-junit-report@latest
 
@@ -107,7 +116,11 @@ $(GO_GOIMPORTS):
 
 mk_go_test: $(GO_COBERTURA) $(GOFILES) $(TARGET_RESULTS) $(TESTPKGS_RESULTS)# Run tests
 	@echo "Generating unit tests coverage..."
+<<<<<<< HEAD
 	@go tool gocovmerge `find ./ -name "*.coverprofile"` > $(TARGET_RESULTS)/cover.out
+=======
+	@go tool covdata textfmt -i=$(GO_COVDATA_DIR) -o $(TARGET_RESULTS)/cover.out
+>>>>>>> origin/master
 	@$(GO_COBERTURA) < $(TARGET_RESULTS)/cover.out > $(TARGET_RESULTS)/coverage.xml
 	@go tool cover -html=$(TARGET_RESULTS)/cover.out -o=$(TARGET_RESULTS)/cover.html
 	@NB=$$(grep "^FAIL" `find . -type f -name "tests.log"`|grep -v ':0'|wc -l); echo "tests failed $$NB" && exit $$NB
