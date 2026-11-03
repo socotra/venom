@@ -88,7 +88,7 @@ type Skipped struct {
 
 type Testsuite struct {
 	Name       string     `xml:"name,attr"`
-	ApiCovered []string   `xml:"api_covered"`
+	APICovered []string   `xml:"api_covered"`
 	Testcases  []Testcase `xml:"testcase"`
 }
 
@@ -357,9 +357,9 @@ type Endpoint struct {
 	Path   string
 }
 
-// parseApiCoveredEntry parses a single `api_covered` entry such as
+// parseAPICoveredEntry parses a single `api_covered` entry such as
 // "GET /quotes/{locator}/constraints/dependency" into its HTTP method and path.
-func parseApiCoveredEntry(entry string) (string, string) {
+func parseAPICoveredEntry(entry string) (string, string) {
 	parts := strings.Fields(entry)
 	if len(parts) != 2 {
 		return "", ""
@@ -377,9 +377,9 @@ func parseApiCoveredEntry(entry string) (string, string) {
 // compatibility.
 func (ts Testsuite) ResolveEndpoints() []Endpoint {
 	var endpoints []Endpoint
-	if len(ts.ApiCovered) > 0 {
-		for _, entry := range ts.ApiCovered {
-			if method, path := parseApiCoveredEntry(entry); method != "" && path != "" {
+	if len(ts.APICovered) > 0 {
+		for _, entry := range ts.APICovered {
+			if method, path := parseAPICoveredEntry(entry); method != "" && path != "" {
 				endpoints = append(endpoints, Endpoint{Method: method, Path: path})
 			}
 		}

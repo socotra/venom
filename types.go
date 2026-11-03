@@ -93,7 +93,7 @@ type TestSuiteXML struct {
 	Hostname   string        `xml:"hostname,attr,omitempty" json:"hostname" yaml:"-"`
 	ID         string        `xml:"id,attr,omitempty" json:"id" yaml:"-"`
 	Name       string        `xml:"name,attr" json:"name" yaml:"name"`
-	ApiCovered []string      `xml:"api_covered,omitempty" json:"api_covered,omitempty" yaml:"api_covered,omitempty"`
+	APICovered []string      `xml:"api_covered,omitempty" json:"api_covered,omitempty" yaml:"api_covered,omitempty"`
 	Package    string        `xml:"package,attr,omitempty" json:"package" yaml:"-"`
 	Skipped    int           `xml:"skipped,attr,omitempty" json:"skipped" yaml:"skipped,omitempty"`
 	Total      int           `xml:"tests,attr" json:"total" yaml:"total,omitempty"`
@@ -105,7 +105,7 @@ type TestSuiteXML struct {
 
 type TestSuiteInput struct {
 	Name        string          `json:"name" yaml:"name"`
-	ApiCovered  []string        `json:"api_covered,omitempty" yaml:"api_covered,omitempty"`
+	APICovered  []string        `json:"api_covered,omitempty" yaml:"api_covered,omitempty"`
 	Description string          `json:"description" yaml:"description"`
 	TestCases   []TestCaseInput `json:"testcases" yaml:"testcases"`
 	Vars        H               `json:"vars" yaml:"vars"`
@@ -114,7 +114,7 @@ type TestSuiteInput struct {
 
 type TestSuite struct {
 	Name        string     `json:"name" yaml:"name"`
-	ApiCovered  []string   `json:"api_covered,omitempty" yaml:"api_covered,omitempty"`
+	APICovered  []string   `json:"api_covered,omitempty" yaml:"api_covered,omitempty"`
 	Description string     `json:"description,omitempty" yaml:"description"`
 	TestCases   []TestCase `json:"testcases" yaml:"testcases"`
 	Vars        H          `json:"vars" yaml:"vars"`
