@@ -136,7 +136,7 @@ Apply in GitHub → Settings → Branches (or Rulesets):
 
 Checkout and fast-forward of `master` use the default `GITHUB_TOKEN` (`contents: write`).
 
-Opening the sync PR (and requesting `@socotra/quality-engineering`) requires repo secret `CI_GH_TOKEN`: classic PAT with `repo` scope, or fine-grained with Contents + Pull requests. Same secret as `create-release.yml`. We do **not** enable “Allow GitHub Actions to create and approve pull requests” — QE approves, not the bot.
+Opening the sync PR (and requesting `@socotra/quality-engineering`) requires repo secret `CI_GH_TOKEN`: classic PAT with `repo` (and usually `write:packages` if shared with release workflows). Same secret as `create-release.yml`. Team review is requested via REST so `read:org` is not required. We do **not** enable “Allow GitHub Actions to create and approve pull requests” — QE approves, not the bot.
 
 If PR creation fails after the branch is pushed:
 `gh pr create --base internal/develop --head sync/upstream-YYYYMMDD --reviewer socotra/quality-engineering`

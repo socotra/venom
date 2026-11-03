@@ -142,14 +142,14 @@ jobs:
           git push --force-with-lease -u origin "HEAD:${BRANCH}"
 
       - name: Ensure needs-manual-merge label exists
-        if: steps.need.outputs.ahead != '0'
+        if: steps.need.outputs.ahead != '0' && steps.merge.outputs.conflict == 'true'
         env:
           GH_TOKEN: ${{ secrets.CI_GH_TOKEN }}
         run: |
           gh label create needs-manual-merge \
             --description "Upstream sync PR has merge conflicts" \
             --color B60205 \
-            --force || true
+            --force >/dev/null 2>&1 || true
 
       - name: Open or update pull request for QE review
         if: steps.need.outputs.ahead != '0'
@@ -158,81 +158,59 @@ jobs:
           BRANCH: ${{ steps.merge.outputs.branch }}
           CONFLICT: ${{ steps.merge.outputs.conflict }}
           MASTER_SHA: ${{ needs.mirror-master.outputs.master_sha }}
-          QE_TEAM: socotra/quality-engineering
         run: |
           set -euo pipefail
+          # Prefer REST over `gh pr edit/reviewer` — those GraphQL calls need read:org,
+          # which CI_GH_TOKEN (repo + write:packages) does not have.
 
           TITLE="chore: sync upstream into internal/develop (${BRANCH#sync/upstream-})"
-          CONFLICT_NOTE=""
           if [ "${CONFLICT}" = "true" ]; then
-            CONFLICT_NOTE=$(cat <<'NOTE'
+            BODY=$(cat <<EOF
+          Sync \`master\` (\`${MASTER_SHA}\`) into \`internal/develop\` via \`${BRANCH}\`.
 
-          ## Conflicts
-          GitHub should report merge conflicts on this PR (branch tip is clean \`master\`; do not expect \`<<<<<<<\` in the diff).
-
-          Resolve by checking out the branch, merging \`internal/develop\`, fixing conflicts, and pushing:
-          ```bash
-          git fetch origin
-          git checkout BRANCH_PLACEHOLDER
+          **Conflicts:** resolve in GitHub, or locally:
+          \`\`\`
+          git fetch origin && git checkout ${BRANCH}
           git merge origin/internal/develop
-          # fix conflicts, then:
-          git add -A && git commit
-          make test
-          git push
-          ```
-          NOTE
-            )
-            CONFLICT_NOTE=${CONFLICT_NOTE//BRANCH_PLACEHOLDER/${BRANCH}}
-          fi
+          # fix, commit, make test, git push
+          \`\`\`
 
-          BODY=$(cat <<EOF
-          ## Summary
-          Automated sync of \`master\` (mirror of [ovh/venom](https://github.com/ovh/venom)) into \`internal/develop\`.
-
-          - \`master\` tip: \`${MASTER_SHA}\`
-          - Branch: \`${BRANCH}\`
-
-          **Do not merge without Quality Engineering approval.** Actions will never approve this PR.
-          ${CONFLICT_NOTE}
-          ## QE checklist
-          - [ ] Conflicts resolved in GitHub / locally (no conflict markers committed)
-          - [ ] \`make test\` / CI green
-          - [ ] Hotspot files reviewed (\`executors/http/http.go\`, \`go.mod\`, \`go.sum\`, \`venom.go\`, \`process*.go\`)
-          - [ ] No unexpected fork-only regressions
-
-          See [docs/UPSTREAM.md](../blob/internal/develop/docs/UPSTREAM.md).
+          Needs **@socotra/quality-engineering** approval. See docs/UPSTREAM.md.
           EOF
-          )
-
-          EXISTING=$(gh pr list --head "${BRANCH}" --base internal/develop --state open --json number --jq '.[0].number // empty')
-
-          if [ -n "${EXISTING}" ]; then
-            echo "Updating existing PR #${EXISTING}"
-            gh pr edit "${EXISTING}" --title "${TITLE}" --body "${BODY}"
-            PR_NUMBER="${EXISTING}"
+            )
           else
-            DRAFT_FLAG=()
-            if [ "${CONFLICT}" = "true" ]; then
-              DRAFT_FLAG=(--draft)
-            fi
-            PR_URL=$(gh pr create \
-              --base internal/develop \
-              --head "${BRANCH}" \
-              --title "${TITLE}" \
-              --body "${BODY}" \
-              --reviewer "${QE_TEAM}" \
-              "${DRAFT_FLAG[@]}")
-            echo "Created PR: ${PR_URL}"
-            PR_NUMBER=$(echo "${PR_URL}" | grep -oE '[0-9]+$')
+            BODY=$(cat <<EOF
+          Sync \`master\` (\`${MASTER_SHA}\`) into \`internal/develop\` via \`${BRANCH}\`.
+
+          Needs **@socotra/quality-engineering** approval. See docs/UPSTREAM.md.
+          EOF
+            )
           fi
 
-          # Always (re)request QE — never approve from Actions.
-          gh pr edit "${PR_NUMBER}" --add-reviewer "${QE_TEAM}" || \
-            gh api -X POST "repos/${{ github.repository }}/pulls/${PR_NUMBER}/requested_reviewers" \
-              -f "team_reviewers[]=quality-engineering" || \
-            echo "::warning::Could not request review from ${QE_TEAM}; assign manually."
+          PR_NUMBER=$(gh pr list --head "${BRANCH}" --base internal/develop --state open --json number --jq '.[0].number // empty')
+
+          if [ -n "${PR_NUMBER}" ]; then
+            gh api --method PATCH "repos/${{ github.repository }}/pulls/${PR_NUMBER}" \
+              -f title="${TITLE}" -f body="${BODY}" --silent
+            echo "Updated PR #${PR_NUMBER}"
+          else
+            ARGS=(--base internal/develop --head "${BRANCH}" --title "${TITLE}" --body "${BODY}")
+            if [ "${CONFLICT}" = "true" ]; then
+              ARGS+=(--draft)
+            fi
+            PR_URL=$(gh pr create "${ARGS[@]}")
+            PR_NUMBER=$(echo "${PR_URL}" | grep -oE '[0-9]+$')
+            echo "Opened PR #${PR_NUMBER}: ${PR_URL}"
+          fi
+
+          # Request QE via REST (no read:org / GraphQL). Never auto-approve.
+          if ! gh api --method POST "repos/${{ github.repository }}/pulls/${PR_NUMBER}/requested_reviewers" \
+              -f "team_reviewers[]=quality-engineering" --silent; then
+            echo "::warning::Could not request @socotra/quality-engineering; assign manually on #${PR_NUMBER}"
+          fi
 
           if [ "${CONFLICT}" = "true" ]; then
-            gh pr ready "${PR_NUMBER}" --undo || true
-            gh pr edit "${PR_NUMBER}" --add-label needs-manual-merge
+            gh api --method POST "repos/${{ github.repository }}/issues/${PR_NUMBER}/labels" \
+              -f "labels[]=needs-manual-merge" --silent \
+              || echo "::warning::Could not add needs-manual-merge label"
           fi
