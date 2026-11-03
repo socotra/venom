@@ -111,7 +111,7 @@ jobs:
           fi
           echo "CI_GH_TOKEN OK for PR operations"
 
-      - name: Create sync branch and merge master
+      - name: Create sync branch
         if: steps.need.outputs.ahead != '0'
         id: merge
         run: |
@@ -120,28 +120,26 @@ jobs:
           BRANCH="sync/upstream-${DATE}"
           echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
 
-          # Reuse today's branch if it already exists remotely
-          if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
-            echo "Branch ${BRANCH} already exists; checking out"
-            git checkout -B "${BRANCH}" "origin/${BRANCH}"
-          else
-            git checkout -B "${BRANCH}" origin/internal/develop
-          fi
-
+          # Never commit <<<<<<< markers — that breaks CI and hides conflicts in the PR UI.
+          # Clean merge: branch = internal/develop + master (CI tests the merged tree).
+          # Conflicts: branch = master only so GitHub reports real merge conflicts on the PR.
+          git checkout -B "${BRANCH}" origin/internal/develop
           conflict=false
           if git merge --no-edit origin/master; then
-            echo "Merge of master into ${BRANCH} succeeded cleanly"
+            echo "Merged master into ${BRANCH} cleanly"
           else
             conflict=true
-            echo "Merge conflicts detected; committing conflict markers for manual resolution"
-            # Stage conflicted files as-is (markers included) so the PR is reviewable.
-            git add -A
-            git -c core.editor=true commit --no-edit -m "WIP: sync upstream/master into internal/develop (conflicts)" \
-              || git commit -m "WIP: sync upstream/master into internal/develop (conflicts)"
+            echo "Merge conflicts detected. Files:"
+            git diff --name-only --diff-filter=U || true
+            git merge --abort
+            git checkout -B "${BRANCH}" origin/master
+            echo "Reset ${BRANCH} to origin/master so the PR surfaces GitHub conflicts"
           fi
           echo "conflict=${conflict}" >> "$GITHUB_OUTPUT"
 
-          git push -u origin "HEAD:${BRANCH}"
+          # force-with-lease: overwrite a same-day branch that may still have
+          # an old markers commit from a previous broken sync attempt.
+          git push --force-with-lease -u origin "HEAD:${BRANCH}"
 
       - name: Ensure needs-manual-merge label exists
         if: steps.need.outputs.ahead != '0'
@@ -165,6 +163,28 @@ jobs:
           set -euo pipefail
 
           TITLE="chore: sync upstream into internal/develop (${BRANCH#sync/upstream-})"
+          CONFLICT_NOTE=""
+          if [ "${CONFLICT}" = "true" ]; then
+            CONFLICT_NOTE=$(cat <<'NOTE'
+
+          ## Conflicts
+          GitHub should report merge conflicts on this PR (branch tip is clean \`master\`; do not expect \`<<<<<<<\` in the diff).
+
+          Resolve by checking out the branch, merging \`internal/develop\`, fixing conflicts, and pushing:
+          ```bash
+          git fetch origin
+          git checkout BRANCH_PLACEHOLDER
+          git merge origin/internal/develop
+          # fix conflicts, then:
+          git add -A && git commit
+          make test
+          git push
+          ```
+          NOTE
+            )
+            CONFLICT_NOTE=${CONFLICT_NOTE//BRANCH_PLACEHOLDER/${BRANCH}}
+          fi
+
           BODY=$(cat <<EOF
           ## Summary
           Automated sync of \`master\` (mirror of [ovh/venom](https://github.com/ovh/venom)) into \`internal/develop\`.
@@ -173,9 +193,9 @@ jobs:
           - Branch: \`${BRANCH}\`
 
           **Do not merge without Quality Engineering approval.** Actions will never approve this PR.
-
+          ${CONFLICT_NOTE}
           ## QE checklist
-          - [ ] Conflicts resolved (if any)
+          - [ ] Conflicts resolved in GitHub / locally (no conflict markers committed)
           - [ ] \`make test\` / CI green
           - [ ] Hotspot files reviewed (\`executors/http/http.go\`, \`go.mod\`, \`go.sum\`, \`venom.go\`, \`process*.go\`)
           - [ ] No unexpected fork-only regressions

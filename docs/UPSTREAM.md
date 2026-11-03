@@ -61,24 +61,27 @@ Private work that must not leave the fork stays on `feature/*` / `fix/*` from `i
 
 ## Resolving sync conflicts
 
-Hotspots when merging `master` into `internal/develop`:
+On conflicts, the sync branch is reset to `master` (clean tree) so the PR into `internal/develop` shows **real GitHub merge conflicts**. We never commit `<<<<<<<` markers — that breaks CI and hides conflicts in the PR UI. Clean syncs keep a normal merge commit so CI tests the combined tree.
+
+Hotspots:
 
 - `executors/http/http.go` — upstream multi-value headers / multipart fields vs our DPN / local edits
 - `go.mod` / `go.sum` — prefer reconciling with `go mod tidy` after resolving `go.mod`
 - `venom.go`, `process*.go` — our reporting hooks vs upstream refactors
 
-Workflow:
+If the Action opened a draft PR labeled `needs-manual-merge`:
 
 ```bash
-make upstream-sync          # leaves conflicted merge in progress if needed
-# edit conflicted files, remove markers
-git add <files>
-git commit                  # completes the merge
+git fetch origin
+git checkout sync/upstream-YYYYMMDD   # tip is master
+git merge origin/internal/develop
+# resolve conflicts, no markers left behind
+git add -A && git commit
 make test
-git push -u origin HEAD
+git push
 ```
 
-If the Action opened a draft PR labeled `needs-manual-merge`, check out that branch, finish the merge, push, mark the PR ready, and remove the label.
+Then mark the PR ready and remove the label. Or resolve in the GitHub conflict editor.
 
 ## One-time: reset `master` to a clean mirror
 

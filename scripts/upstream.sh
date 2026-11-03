@@ -33,7 +33,7 @@ Commands:
   status              Fetch remotes and show how far master / internal/develop
                       are from upstream and each other.
   sync [--push]       Fast-forward master from upstream, create
-                      sync/upstream-YYYYMMDD from internal/develop, merge master.
+                      sync/upstream-YYYYMMDD from master (PR into internal/develop).
                       Pass --push (or set UPSTREAM_PUSH=1) to push the sync branch.
   feature <name>      Create upstream/<name> from master (no private code).
   check [branch]      Show commits/files vs master and warn if fork-only paths
@@ -181,49 +181,51 @@ cmd_sync() {
     return 0
   fi
 
+  # Never commit <<<<<<< markers (breaks CI and hides conflicts in the PR UI).
+  # Clean: branch = develop + master. Conflicts: branch = master so GitHub shows them.
   info "Creating ${branch} from ${develop_ref} (${ahead} commit(s) to merge)..."
   git checkout -B "${branch}" "${develop_ref}"
 
   local conflict=false
   if git merge --no-edit "${MASTER_BRANCH}"; then
-    info "Merge of ${MASTER_BRANCH} into ${branch} succeeded."
+    info "Merged ${MASTER_BRANCH} into ${branch} cleanly."
   else
     conflict=true
-    info "Merge conflicts detected."
-    info "Conflicted files:"
+    info "Merge conflicts detected. Files:"
     git diff --name-only --diff-filter=U || true
-    cat <<EOF
-
-Next steps:
-  1. Resolve conflicts (hotspots: executors/http/http.go, go.mod, go.sum, venom.go, process*.go)
-  2. git add <resolved files> && git commit
-  3. make test
-  4. git push -u ${ORIGIN_REMOTE} ${branch}
-  5. Open a PR: ${branch} -> ${DEVELOP_BRANCH}
-     gh pr create --base ${DEVELOP_BRANCH} --head ${branch} --title "chore: sync upstream into internal/develop"
-
-Leaving the conflicted merge in progress on ${branch}.
-EOF
-    return 1
+    git merge --abort
+    git checkout -B "${branch}" "${MASTER_BRANCH}"
+    info "Reset ${branch} to ${MASTER_BRANCH} so a PR into ${DEVELOP_BRANCH} shows GitHub conflicts."
   fi
 
   if want_push "$@"; then
     info "Pushing ${branch} to ${ORIGIN_REMOTE}..."
-    git push -u "${ORIGIN_REMOTE}" "HEAD:${branch}"
-    info "Open a PR with:"
-    info "  gh pr create --base ${DEVELOP_BRANCH} --head ${branch} --title \"chore: sync upstream into internal/develop\""
+    git push --force-with-lease -u "${ORIGIN_REMOTE}" "HEAD:${branch}"
   else
-    cat <<EOF
-
-Next steps:
-  1. make test
-  2. git push -u ${ORIGIN_REMOTE} ${branch}
-     (or re-run with --push / UPSTREAM_PUSH=1)
-  3. gh pr create --base ${DEVELOP_BRANCH} --head ${branch} --title "chore: sync upstream into internal/develop"
-EOF
+    info "Skipped push of ${branch} (pass --push or UPSTREAM_PUSH=1 to push)."
   fi
 
+  cat <<EOF
+
+Next steps:
+  1. git push --force-with-lease -u ${ORIGIN_REMOTE} ${branch}   # if not already pushed
+  2. gh pr create --base ${DEVELOP_BRANCH} --head ${branch} \\
+       --title "chore: sync upstream into internal/develop" \\
+       --reviewer socotra/quality-engineering
+EOF
+
   if [ "${conflict}" = "true" ]; then
+    cat <<EOF
+
+Conflicts expected on the PR (GitHub UI). To resolve locally:
+  git fetch ${ORIGIN_REMOTE}
+  git checkout ${branch}
+  git merge ${ORIGIN_REMOTE}/${DEVELOP_BRANCH}
+  # fix conflicts (hotspots: executors/http/http.go, go.mod, go.sum, venom.go, process*.go)
+  git add -A && git commit
+  make test
+  git push
+EOF
     return 1
   fi
 }
