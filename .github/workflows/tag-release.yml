@@ -18,10 +18,22 @@ jobs:
         run: |
           git config user.name "GitHub Actions"
           git config user.email noreply@github.com
+      - name: Read Go version from go.mod
+        id: goversion
+        run: |
+          ver=$(awk '/^go / { print $2; exit }' go.mod)
+          if [ -z "${ver}" ]; then
+            ver=$(awk '/^toolchain / { sub(/^go/, "", $2); print $2; exit }' go.mod)
+          fi
+          if [ -z "${ver}" ]; then
+            echo "::error::could not parse Go version from go.mod"
+            exit 1
+          fi
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.27.3'
+          go-version: ${{ steps.goversion.outputs.version }}
           cache: true
       - name: Tidy Go modules
         run: go mod tidy

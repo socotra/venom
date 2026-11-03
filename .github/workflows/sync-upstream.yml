@@ -1,0 +1,195 @@
+name: Sync upstream
+
+on:
+  schedule:
+    # Mondays 09:00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  mirror-master:
+    name: Fast-forward master from ovh/venom
+    runs-on: ubuntu-latest
+    outputs:
+      updated: ${{ steps.ff.outputs.updated }}
+      master_sha: ${{ steps.ff.outputs.master_sha }}
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v5
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ secrets.CI_GH_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "noreply@github.com"
+
+      - name: Add upstream remote
+        run: |
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream https://github.com/ovh/venom.git
+          else
+            git remote add upstream https://github.com/ovh/venom.git
+          fi
+          git fetch upstream master
+          git fetch origin master
+
+      - name: Fast-forward master
+        id: ff
+        run: |
+          set -euo pipefail
+          before=$(git rev-parse HEAD)
+          echo "master before: ${before}"
+
+          if ! git merge --ff-only upstream/master; then
+            echo "::error::master cannot fast-forward from upstream/master. master may have been polluted — reset it to upstream/master (see docs/UPSTREAM.md)."
+            exit 1
+          fi
+
+          after=$(git rev-parse HEAD)
+          echo "master after: ${after}"
+          echo "master_sha=${after}" >> "$GITHUB_OUTPUT"
+
+          if [ "${before}" = "${after}" ]; then
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+            echo "master already up to date with upstream/master"
+          else
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+            git push origin HEAD:master
+            echo "Pushed fast-forward of master to ${after}"
+          fi
+
+  sync-develop:
+    name: Open sync PR into internal/develop
+    needs: mirror-master
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.CI_GH_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "noreply@github.com"
+
+      - name: Fetch branches
+        run: |
+          git fetch origin master internal/develop
+
+      - name: Check whether internal/develop needs a sync
+        id: need
+        run: |
+          set -euo pipefail
+          ahead=$(git rev-list --count origin/internal/develop..origin/master)
+          echo "Commits on master not in internal/develop: ${ahead}"
+          echo "ahead=${ahead}" >> "$GITHUB_OUTPUT"
+          if [ "${ahead}" -eq 0 ]; then
+            echo "internal/develop already contains master; nothing to sync"
+          fi
+
+      - name: Create sync branch and merge master
+        if: steps.need.outputs.ahead != '0'
+        id: merge
+        env:
+          GH_TOKEN: ${{ secrets.CI_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          DATE=$(date -u +%Y%m%d)
+          BRANCH="sync/upstream-${DATE}"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+          # Reuse today's branch if it already exists remotely
+          if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
+            echo "Branch ${BRANCH} already exists; checking out"
+            git checkout -B "${BRANCH}" "origin/${BRANCH}"
+          else
+            git checkout -B "${BRANCH}" origin/internal/develop
+          fi
+
+          conflict=false
+          if git merge --no-edit origin/master; then
+            echo "Merge of master into ${BRANCH} succeeded cleanly"
+          else
+            conflict=true
+            echo "Merge conflicts detected; committing conflict markers for manual resolution"
+            # Stage conflicted files as-is (markers included) so the PR is reviewable.
+            git add -A
+            git -c core.editor=true commit --no-edit -m "WIP: sync upstream/master into internal/develop (conflicts)" \
+              || git commit -m "WIP: sync upstream/master into internal/develop (conflicts)"
+          fi
+          echo "conflict=${conflict}" >> "$GITHUB_OUTPUT"
+
+          git push -u origin "HEAD:${BRANCH}"
+
+      - name: Ensure needs-manual-merge label exists
+        if: steps.need.outputs.ahead != '0'
+        env:
+          GH_TOKEN: ${{ secrets.CI_GH_TOKEN }}
+        run: |
+          gh label create needs-manual-merge \
+            --description "Upstream sync PR has merge conflicts" \
+            --color B60205 \
+            --force || true
+
+      - name: Open or update pull request
+        if: steps.need.outputs.ahead != '0'
+        env:
+          GH_TOKEN: ${{ secrets.CI_GH_TOKEN }}
+          BRANCH: ${{ steps.merge.outputs.branch }}
+          CONFLICT: ${{ steps.merge.outputs.conflict }}
+          MASTER_SHA: ${{ needs.mirror-master.outputs.master_sha }}
+        run: |
+          set -euo pipefail
+
+          TITLE="chore: sync upstream into internal/develop (${BRANCH#sync/upstream-})"
+          BODY=$(cat <<EOF
+          ## Summary
+          Automated sync of \`master\` (mirror of [ovh/venom](https://github.com/ovh/venom)) into \`internal/develop\`.
+
+          - \`master\` tip: \`${MASTER_SHA}\`
+          - Branch: \`${BRANCH}\`
+
+          ## Checklist
+          - [ ] Conflicts resolved (if any)
+          - [ ] \`make test\` passes
+          - [ ] Hotspot files reviewed (\`executors/http/http.go\`, \`go.mod\`, \`go.sum\`, \`venom.go\`, \`process*.go\`)
+
+          See [docs/UPSTREAM.md](../blob/internal/develop/docs/UPSTREAM.md) for the branch model and conflict guidance.
+          EOF
+          )
+
+          EXISTING=$(gh pr list --head "${BRANCH}" --base internal/develop --state open --json number --jq '.[0].number // empty')
+
+          if [ -n "${EXISTING}" ]; then
+            echo "Updating existing PR #${EXISTING}"
+            gh pr edit "${EXISTING}" --title "${TITLE}" --body "${BODY}"
+            PR_NUMBER="${EXISTING}"
+          else
+            DRAFT_FLAG=()
+            if [ "${CONFLICT}" = "true" ]; then
+              DRAFT_FLAG=(--draft)
+            fi
+            PR_URL=$(gh pr create \
+              --base internal/develop \
+              --head "${BRANCH}" \
+              --title "${TITLE}" \
+              --body "${BODY}" \
+              "${DRAFT_FLAG[@]}")
+            echo "Created PR: ${PR_URL}"
+            PR_NUMBER=$(echo "${PR_URL}" | grep -oE '[0-9]+$')
+          fi
+
+          if [ "${CONFLICT}" = "true" ]; then
+            gh pr ready "${PR_NUMBER}" --undo || true
+            gh pr edit "${PR_NUMBER}" --add-label needs-manual-merge
+          fi

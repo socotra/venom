@@ -55,6 +55,7 @@ Venom is a CLI (Command Line Interface) that aims to create, manage and run your
   - [How to test?](#how-to-test)
     - [Unit tests:](#unit-tests)
     - [Integration tests:](#integration-tests)
+- [Branches and upstream](#branches-and-upstream)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -1059,12 +1060,35 @@ make clean
 make stop-test-stack
 ```
 
+# Branches and upstream
+
+This repository (`socotra/venom`) is a fork of [ovh/venom](https://github.com/ovh/venom).
+
+| Branch | Purpose |
+|--------|---------|
+| `master` | Mirror of upstream `ovh/venom` `master` (fast-forward only) |
+| `internal/develop` | Day-to-day development (protected) |
+| `internal/master` | Releases / testing builds |
+| `upstream/<name>` | Changes intended to contribute back to ovh |
+| `feature/*`, `fix/*` | Fork-only work based on `internal/develop` |
+
+```bash
+make upstream-status              # how far behind are we?
+make upstream-sync                # pull upstream into a sync branch
+make upstream-feature NAME=foo    # start an upstream-bound change
+make upstream-check               # ensure the branch has no fork-only files
+```
+
+Full details: [docs/UPSTREAM.md](./docs/UPSTREAM.md).
+
 # Contributing
 
 <a href="https://gitpod.io/#https://github.com/ovh/venom"><img src="https://img.shields.io/badge/Contribute%20with-Gitpod-908a85?logo=gitpod" alt="Contribute with Gitpod"/></a>
 
 Please read the [contributing guide](./CONTRIBUTING.md) to learn about how you can contribute to Venom ;-).
 There is no small contribution, don't hesitate!
+
+For this fork's branch model and how to send fixes upstream, see [docs/UPSTREAM.md](./docs/UPSTREAM.md).
 
 Our awesome contributors:
 
