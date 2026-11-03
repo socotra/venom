@@ -2,8 +2,8 @@ name: Sync upstream
 
 on:
   schedule:
-    # Mondays 09:00 UTC
-    - cron: '0 9 * * 1'
+    # ~every 2 weeks: 1st and 15th of the month, 09:00 UTC
+    - cron: '0 9 1,15 * *'
   workflow_dispatch:
 
 permissions:
@@ -84,25 +84,6 @@ jobs:
         run: |
           git fetch origin master internal/develop
 
-      - name: Resolve GitHub token for API / PR steps
-        id: tok
-        env:
-          PAT: ${{ secrets.CI_GH_TOKEN }}
-        run: |
-          set -euo pipefail
-          # Do not write token values to GITHUB_OUTPUT — only a boolean.
-          if [ -n "${PAT}" ] && GH_TOKEN="${PAT}" gh api user >/dev/null 2>&1; then
-            echo "Using CI_GH_TOKEN (PAT) for PR operations"
-            echo "use_pat=true" >> "$GITHUB_OUTPUT"
-          else
-            if [ -n "${PAT}" ]; then
-              echo "::warning::CI_GH_TOKEN is set but invalid/unauthorized; falling back to GITHUB_TOKEN. PRs opened with GITHUB_TOKEN will not trigger other workflows."
-            else
-              echo "::warning::CI_GH_TOKEN is not set; using GITHUB_TOKEN. PRs opened with GITHUB_TOKEN will not trigger other workflows."
-            fi
-            echo "use_pat=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Check whether internal/develop needs a sync
         id: need
         run: |
@@ -113,6 +94,22 @@ jobs:
           if [ "${ahead}" -eq 0 ]; then
             echo "internal/develop already contains master; nothing to sync"
           fi
+      - name: Require CI_GH_TOKEN for PR operations
+        if: steps.need.outputs.ahead != '0'
+        env:
+          PAT: ${{ secrets.CI_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PAT}" ]; then
+            echo "::error::CI_GH_TOKEN secret is not set. Sync branches can still be pushed with GITHUB_TOKEN, but opening a PR (for QE review) requires a PAT — same secret as create-release.yml."
+            exit 1
+          fi
+          # Probe repo access, not /user — fine-grained PATs often cannot call /user.
+          if ! GH_TOKEN="${PAT}" gh api "repos/${{ github.repository }}" >/dev/null 2>&1; then
+            echo "::error::CI_GH_TOKEN cannot access ${{ github.repository }}. Refresh the PAT (classic repo scope, or fine-grained Contents + Pull requests)."
+            exit 1
+          fi
+          echo "CI_GH_TOKEN OK for PR operations"
 
       - name: Create sync branch and merge master
         if: steps.need.outputs.ahead != '0'
@@ -149,20 +146,21 @@ jobs:
       - name: Ensure needs-manual-merge label exists
         if: steps.need.outputs.ahead != '0'
         env:
-          GH_TOKEN: ${{ steps.tok.outputs.use_pat == 'true' && secrets.CI_GH_TOKEN || github.token }}
+          GH_TOKEN: ${{ secrets.CI_GH_TOKEN }}
         run: |
           gh label create needs-manual-merge \
             --description "Upstream sync PR has merge conflicts" \
             --color B60205 \
             --force || true
 
-      - name: Open or update pull request
+      - name: Open or update pull request for QE review
         if: steps.need.outputs.ahead != '0'
         env:
-          GH_TOKEN: ${{ steps.tok.outputs.use_pat == 'true' && secrets.CI_GH_TOKEN || github.token }}
+          GH_TOKEN: ${{ secrets.CI_GH_TOKEN }}
           BRANCH: ${{ steps.merge.outputs.branch }}
           CONFLICT: ${{ steps.merge.outputs.conflict }}
           MASTER_SHA: ${{ needs.mirror-master.outputs.master_sha }}
+          QE_TEAM: socotra/quality-engineering
         run: |
           set -euo pipefail
 
@@ -174,12 +172,15 @@ jobs:
           - \`master\` tip: \`${MASTER_SHA}\`
           - Branch: \`${BRANCH}\`
 
-          ## Checklist
-          - [ ] Conflicts resolved (if any)
-          - [ ] \`make test\` passes
-          - [ ] Hotspot files reviewed (\`executors/http/http.go\`, \`go.mod\`, \`go.sum\`, \`venom.go\`, \`process*.go\`)
+          **Do not merge without Quality Engineering approval.** Actions will never approve this PR.
 
-          See [docs/UPSTREAM.md](../blob/internal/develop/docs/UPSTREAM.md) for the branch model and conflict guidance.
+          ## QE checklist
+          - [ ] Conflicts resolved (if any)
+          - [ ] \`make test\` / CI green
+          - [ ] Hotspot files reviewed (\`executors/http/http.go\`, \`go.mod\`, \`go.sum\`, \`venom.go\`, \`process*.go\`)
+          - [ ] No unexpected fork-only regressions
+
+          See [docs/UPSTREAM.md](../blob/internal/develop/docs/UPSTREAM.md).
           EOF
           )
 
@@ -199,10 +200,17 @@ jobs:
               --head "${BRANCH}" \
               --title "${TITLE}" \
               --body "${BODY}" \
+              --reviewer "${QE_TEAM}" \
               "${DRAFT_FLAG[@]}")
             echo "Created PR: ${PR_URL}"
             PR_NUMBER=$(echo "${PR_URL}" | grep -oE '[0-9]+$')
           fi
+
+          # Always (re)request QE — never approve from Actions.
+          gh pr edit "${PR_NUMBER}" --add-reviewer "${QE_TEAM}" || \
+            gh api -X POST "repos/${{ github.repository }}/pulls/${PR_NUMBER}/requested_reviewers" \
+              -f "team_reviewers[]=quality-engineering" || \
+            echo "::warning::Could not request review from ${QE_TEAM}; assign manually."
 
           if [ "${CONFLICT}" = "true" ]; then
             gh pr ready "${PR_NUMBER}" --undo || true

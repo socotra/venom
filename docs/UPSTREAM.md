@@ -44,7 +44,7 @@ make upstream-check
 
 Equivalent without Make: `./scripts/upstream.sh status|sync|feature|check`.
 
-A weekly GitHub Action (`.github/workflows/sync-upstream.yml`) does the same sync automatically and opens a PR into `internal/develop`. Run it manually via **Actions → Sync upstream → Run workflow**.
+A biweekly GitHub Action (`.github/workflows/sync-upstream.yml`, 1st and 15th 09:00 UTC) does the same sync automatically and opens a PR into `internal/develop`, requesting review from `@socotra/quality-engineering`. **QE must approve before merge** — Actions never auto-approves. Run it manually via **Actions → Sync upstream → Run workflow**.
 
 ## Contributing a change back to ovh
 
@@ -122,8 +122,9 @@ Apply in GitHub → Settings → Branches (or Rulesets):
 
 **`internal/develop`**
 - Require a pull request before merging
+- Require at least one approving review (Quality Engineering)
 - Require status checks: `CI Build and Test` / `build`
-- Dismiss stale reviews optional
+- Do **not** rely on Actions to approve PRs
 
 **`internal/master`**
 - Same as `internal/develop` (release PRs from `create-release.yml`)
@@ -132,4 +133,7 @@ Apply in GitHub → Settings → Branches (or Rulesets):
 
 Checkout and fast-forward of `master` use the default `GITHUB_TOKEN` (`contents: write`).
 
-Optional: set repo secret `CI_GH_TOKEN` to a PAT (or GitHub App token) with `repo` scope so opened sync PRs can trigger other workflows. If it is missing or invalid, the Action falls back to `GITHUB_TOKEN` and warns; the sync still works, but CI may not run on the sync PR until you push an empty commit or re-run jobs manually.
+Opening the sync PR (and requesting `@socotra/quality-engineering`) requires repo secret `CI_GH_TOKEN`: classic PAT with `repo` scope, or fine-grained with Contents + Pull requests. Same secret as `create-release.yml`. We do **not** enable “Allow GitHub Actions to create and approve pull requests” — QE approves, not the bot.
+
+If PR creation fails after the branch is pushed:
+`gh pr create --base internal/develop --head sync/upstream-YYYYMMDD --reviewer socotra/quality-engineering`
