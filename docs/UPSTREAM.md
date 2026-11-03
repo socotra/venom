@@ -130,4 +130,6 @@ Apply in GitHub → Settings → Branches (or Rulesets):
 
 ## Secrets
 
-`CI_GH_TOKEN` must be a PAT (or GitHub App token) that can push to `master` / sync branches and open PRs. The default `GITHUB_TOKEN` cannot open PRs that trigger other workflows.
+Checkout and fast-forward of `master` use the default `GITHUB_TOKEN` (`contents: write`).
+
+Optional: set repo secret `CI_GH_TOKEN` to a PAT (or GitHub App token) with `repo` scope so opened sync PRs can trigger other workflows. If it is missing or invalid, the Action falls back to `GITHUB_TOKEN` and warns; the sync still works, but CI may not run on the sync PR until you push an empty commit or re-run jobs manually.

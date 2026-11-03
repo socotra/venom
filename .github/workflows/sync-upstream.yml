@@ -24,7 +24,6 @@ jobs:
         with:
           ref: master
           fetch-depth: 0
-          token: ${{ secrets.CI_GH_TOKEN }}
 
       - name: Configure git
         run: |
@@ -75,7 +74,6 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          token: ${{ secrets.CI_GH_TOKEN }}
 
       - name: Configure git
         run: |
@@ -85,6 +83,25 @@ jobs:
       - name: Fetch branches
         run: |
           git fetch origin master internal/develop
+
+      - name: Resolve GitHub token for API / PR steps
+        id: tok
+        env:
+          PAT: ${{ secrets.CI_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Do not write token values to GITHUB_OUTPUT — only a boolean.
+          if [ -n "${PAT}" ] && GH_TOKEN="${PAT}" gh api user >/dev/null 2>&1; then
+            echo "Using CI_GH_TOKEN (PAT) for PR operations"
+            echo "use_pat=true" >> "$GITHUB_OUTPUT"
+          else
+            if [ -n "${PAT}" ]; then
+              echo "::warning::CI_GH_TOKEN is set but invalid/unauthorized; falling back to GITHUB_TOKEN. PRs opened with GITHUB_TOKEN will not trigger other workflows."
+            else
+              echo "::warning::CI_GH_TOKEN is not set; using GITHUB_TOKEN. PRs opened with GITHUB_TOKEN will not trigger other workflows."
+            fi
+            echo "use_pat=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Check whether internal/develop needs a sync
         id: need
@@ -100,8 +117,6 @@ jobs:
       - name: Create sync branch and merge master
         if: steps.need.outputs.ahead != '0'
         id: merge
-        env:
-          GH_TOKEN: ${{ secrets.CI_GH_TOKEN }}
         run: |
           set -euo pipefail
           DATE=$(date -u +%Y%m%d)
@@ -134,7 +149,7 @@ jobs:
       - name: Ensure needs-manual-merge label exists
         if: steps.need.outputs.ahead != '0'
         env:
-          GH_TOKEN: ${{ secrets.CI_GH_TOKEN }}
+          GH_TOKEN: ${{ steps.tok.outputs.use_pat == 'true' && secrets.CI_GH_TOKEN || github.token }}
         run: |
           gh label create needs-manual-merge \
             --description "Upstream sync PR has merge conflicts" \
@@ -144,7 +159,7 @@ jobs:
       - name: Open or update pull request
         if: steps.need.outputs.ahead != '0'
         env:
-          GH_TOKEN: ${{ secrets.CI_GH_TOKEN }}
+          GH_TOKEN: ${{ steps.tok.outputs.use_pat == 'true' && secrets.CI_GH_TOKEN || github.token }}
           BRANCH: ${{ steps.merge.outputs.branch }}
           CONFLICT: ${{ steps.merge.outputs.conflict }}
           MASTER_SHA: ${{ needs.mirror-master.outputs.master_sha }}
